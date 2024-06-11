@@ -2,55 +2,55 @@ import unittest
 from unittest.mock import patch
 import torch
 from biofuse.models.embedding_extractor import PreTrainedEmbedding
+from PIL import Image
+import os
 
 class TestPreTrainedEmbedding(unittest.TestCase):
     def setUp(self):
-        self.model_name = "rad-dino"
-        self.extractor = PreTrainedEmbedding(self.model_name)
+        self.image = Image.open("data/xray.jpg")
+        self.text = "Patient has a fracture in the left arm."
 
     def test_load_model(self):
         self.assertIsNotNone(self.extractor.model)
         self.assertIsNotNone(self.extractor.processor)
 
-    def test_rad_dino(self):
-        # Create a sample image tensor
-        image_tensor = torch.randn(3, 224, 224)
+    def test_rad_dino(self):     
+        self.model_name = "rad-dino"
+        self.extractor = PreTrainedEmbedding(self.model_name)
 
-        output = self.extractor(image_tensor)
+        output = self.extractor(self.image)
 
         self.assertEqual(output.shape, (1, 768))
 
-    # def test_forward_pass_biomedclip(self):
-    #     # Create a sample image tensor
-    #     image_tensor = torch.randn(3, 224, 224)
+    def test_biomedclip(self):
+        self.model_name = "BioMedCLIP"
+        self.extractor = PreTrainedEmbedding(self.model_name)
 
-    #     # Mock the tokenizer and model output
-    #     with patch("open_clip.get_tokenizer"), patch("open_clip.create_model_from_pretrained") as mock_create_model:
-    #         mock_model = mock_create_model.return_value[0]
-    #         mock_model.encode_image.return_value = torch.randn(1, 512)
+        output = self.extractor(self.image)
 
-    #         # Call the forward method
-    #         output = self.extractor(image_tensor)
+        self.assertEqual(output.shape, (1, 512))
 
-    #         # Assert the output shape
-    #         self.assertEqual(output.shape, (1, 512))
+    def test_biomistral(self):
+        self.model_name = "BioMistral"
+        self.extractor = PreTrainedEmbedding(self.model_name)
 
-    # def test_forward_pass_biomistral(self):
-    #     # Create a sample text input
-    #     text_input = "Sample text"
+        output = self.extractor(self.text)
 
-    #     # Mock the tokenizer and model output
-    #     with patch("transformers.AutoTokenizer"), patch("transformers.AutoModel") as mock_auto_model:
-    #         mock_model = mock_auto_model.return_value
-    #         mock_model.return_value.last_hidden_state = torch.randn(1, 768)
+        self.assertEqual(output.shape, (1, 4096))
 
-    #         # Call the forward method
-    #         output = self.extractor(text_input)
+    def test_chexagent(self):
+        self.model_name = "CheXagent"
+        self.extractor = PreTrainedEmbedding(self.model_name)
 
-    #         # Assert the output shape
-    #         self.assertEqual(output.shape, (1, 768))
+        output = self.extractor(self.image)
 
-    # Add more test cases for other models and input types
+        self.assertEqual(output.shape, (1, 1408))
+
+    
+    # Tear down method
+    def tearDown(self):
+        # close the image
+        self.image.close()
 
 if __name__ == "__main__":
     unittest.main()

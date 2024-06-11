@@ -99,14 +99,14 @@ class PreTrainedEmbedding(nn.Module):
 
         elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
             if self.model_name == "CheXagent":
-                input_data = self.processor(images=input_data, return_tensors="pt").to('cuda', dtype=torch.float16)
-                input_data['pixel_values'] = input_data['pixel_values'].squeeze(1).to('cuda', dtype=torch.float16)
+                input_data = self.processor(images=input_data, return_tensors="pt")
+                input_data['pixel_values'] = input_data['pixel_values'].squeeze(1)
             else:
                 input_data = self.processor(input_data, return_tensors='pt')
 
             with torch.no_grad():
                 if self.model_name == "CheXagent":
-                    outputs = self.model.get_image_features(**input_data)
+                    outputs = self.model.vision_model(**inputs).last_hidden_state[:, 0, :] 
                 else:
                     outputs = self.model(**input_data).last_hidden_state[:, 0, :]
 
