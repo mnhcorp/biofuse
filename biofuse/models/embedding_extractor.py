@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer, AutoProcessor, CLIPProcessor, CLIPModel
+from transformers import AutoModel, AutoTokenizer, AutoProcessor, CLIPProcessor, CLIPModel, AutoImageProcessor
 from open_clip import create_model_from_pretrained, get_tokenizer
 from torchvision import transforms
 import timm
-from config import AUTH_TOKEN, CACHE_DIR
-from huggingface_hub import login
 import os
+from huggingface_hub import login
+from biofuse.models.config import AUTH_TOKEN, CACHE_DIR
 
 class PreTrainedEmbedding(nn.Module):
     def __init__(self, model_name):
@@ -22,7 +22,7 @@ class PreTrainedEmbedding(nn.Module):
         # set HF_TOKEN environment variable
         os.environ["HF_TOKEN"] = AUTH_TOKEN
         os.environ["HF_HOME"] = "/data/hf-hub/"
-        login()
+        #login()
 
     def _load_model(self):
         if self.model_name == "BioMedCLIP":
@@ -52,7 +52,7 @@ class PreTrainedEmbedding(nn.Module):
         elif self.model_name == "PubMedCLIP":
             self.model = CLIPModel.from_pretrained("flaviagiammarino/pubmed-clip-vit-base-patch32")
             self.processor = CLIPProcessor.from_pretrained("flaviagiammarino/pubmed-clip-vit-base-patch32")
-        elif self.model_name == "RAD-Dino":
+        elif self.model_name == "rad-dino":
             self.model = AutoModel.from_pretrained("microsoft/rad-dino")
             self.processor = AutoImageProcessor.from_pretrained("microsoft/rad-dino")
         elif self.model_name == "UNI":
@@ -71,14 +71,14 @@ class PreTrainedEmbedding(nn.Module):
             raise ValueError(f"Unsupported model: {self.model_name}")
 
     def forward(self, input_data):
-        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "RAD-Dino", "UNI"]:
+        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI"]:
             if self.model_name in ["BioMedCLIP", "CONCH"]:
                 input_data = self.transform(input_data).unsqueeze(0)
             elif self.model_name == "Prov-GigaPath":
                 input_data = self.transform(input_data.convert('RGB')).unsqueeze(0)
             elif self.model_name == "PubMedCLIP":
                 input_data = self.processor(images=input_data, return_tensors="pt")
-            elif self.model_name == "RAD-Dino":
+            elif self.model_name == "rad-dino":
                 input_data = self.processor(images=input_data, return_tensors="pt")
             elif self.model_name == "UNI":
                 input_data = self.transform(input_data).unsqueeze(dim=0)
@@ -92,7 +92,7 @@ class PreTrainedEmbedding(nn.Module):
                     outputs = self.model(input_data).squeeze()
                 elif self.model_name == "PubMedCLIP":
                     outputs = self.model.get_image_features(**input_data)
-                elif self.model_name == "RAD-Dino":
+                elif self.model_name == "rad-dino":
                     outputs = self.model(**input_data).pooler_output
                 elif self.model_name == "UNI":
                     outputs = self.model(input_data)
