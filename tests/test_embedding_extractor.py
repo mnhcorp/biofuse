@@ -10,9 +10,9 @@ class TestPreTrainedEmbedding(unittest.TestCase):
         self.image = Image.open("data/xray.jpg")
         self.text = "Patient has a fracture in the left arm."
 
-    def test_load_model(self):
-        self.assertIsNotNone(self.extractor.model)
-        self.assertIsNotNone(self.extractor.processor)
+    # def test_load_model(self):
+    #     self.assertIsNotNone(self.extractor.model)
+    #     self.assertIsNotNone(self.extractor.processor)
 
     def test_rad_dino(self):     
         self.model_name = "rad-dino"

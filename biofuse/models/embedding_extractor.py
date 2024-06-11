@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer, AutoProcessor, CLIPProcessor, CLIPModel, AutoImageProcessor
+from transformers import AutoModel, AutoTokenizer, AutoProcessor, CLIPProcessor, CLIPModel, AutoImageProcessor, AutoModelForCausalLM
 from open_clip import create_model_from_pretrained, get_tokenizer
 from torchvision import transforms
 import timm
@@ -15,6 +15,7 @@ class PreTrainedEmbedding(nn.Module):
         self.model = None
         self.processor = None
         self.transform = None
+        self.tokenizer = None
         self.login_to_hf()
         self._load_model()
 
@@ -26,13 +27,13 @@ class PreTrainedEmbedding(nn.Module):
 
     def _load_model(self):
         if self.model_name == "BioMedCLIP":
-            self.model, _ = create_model_from_pretrained('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
-            self.processor = get_tokenizer('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
+            self.model, self.processor = create_model_from_pretrained('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
+            self.tokenizer = get_tokenizer('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
         elif self.model_name == "BioMistral":
             self.model = AutoModel.from_pretrained("BioMistral/BioMistral-7B")
             self.processor = AutoTokenizer.from_pretrained("BioMistral/BioMistral-7B")
         elif self.model_name == "CheXagent":
-            self.model = AutoModelForCausalLM.from_pretrained("StanfordAIMI/CheXagent-8b", torch_dtype=torch.float16, trust_remote_code=True)
+            self.model = AutoModelForCausalLM.from_pretrained("StanfordAIMI/CheXagent-8b", torch_dtype=torch.float16, trust_remote_code=True).to("cuda")
             self.processor = AutoProcessor.from_pretrained("StanfordAIMI/CheXagent-8b", trust_remote_code=True)
         elif self.model_name == "CONCH":
             self.model, self.transform = create_model_from_pretrained('conch_ViT-B-16', "hf_hub:MahmoodLab/conch")
@@ -72,8 +73,11 @@ class PreTrainedEmbedding(nn.Module):
 
     def forward(self, input_data):
         if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI"]:
-            if self.model_name in ["BioMedCLIP", "CONCH"]:
+            if self.model_name == "CONCH":
                 input_data = self.transform(input_data).unsqueeze(0)
+            elif self.model_name == "BioMedCLIP":
+                # preprocess
+                input_data = self.processor(input_data).unsqueeze(0)
             elif self.model_name == "Prov-GigaPath":
                 input_data = self.transform(input_data.convert('RGB')).unsqueeze(0)
             elif self.model_name == "PubMedCLIP":
@@ -99,14 +103,16 @@ class PreTrainedEmbedding(nn.Module):
 
         elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
             if self.model_name == "CheXagent":
-                input_data = self.processor(images=input_data, return_tensors="pt")
-                input_data['pixel_values'] = input_data['pixel_values'].squeeze(1)
+                input_data = self.processor(images=input_data, return_tensors="pt").to("cuda", dtype=torch.float16)
+                input_data['pixel_values'] = input_data['pixel_values'].squeeze(1).to("cuda", dtype=torch.float16)
             else:
                 input_data = self.processor(input_data, return_tensors='pt')
 
             with torch.no_grad():
                 if self.model_name == "CheXagent":
-                    outputs = self.model.vision_model(**inputs).last_hidden_state[:, 0, :] 
+                    outputs = self.model.vision_model(**input_data).last_hidden_state[:, 0, :]
+                    # move to cpu
+                    outputs = outputs.detach().cpu().numpy()
                 else:
                     outputs = self.model(**input_data).last_hidden_state[:, 0, :]
 
