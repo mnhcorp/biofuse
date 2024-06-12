@@ -7,6 +7,7 @@ import timm
 import os
 from huggingface_hub import login
 from biofuse.models.config import AUTH_TOKEN, CACHE_DIR
+from conch.open_clip_custom import create_model_from_pretrained as create_model_from_pretrained_conch
 
 class PreTrainedEmbedding(nn.Module):
     def __init__(self, model_name):
@@ -36,7 +37,7 @@ class PreTrainedEmbedding(nn.Module):
             self.model = AutoModelForCausalLM.from_pretrained("StanfordAIMI/CheXagent-8b", torch_dtype=torch.float16, trust_remote_code=True).to("cuda")
             self.processor = AutoProcessor.from_pretrained("StanfordAIMI/CheXagent-8b", trust_remote_code=True)
         elif self.model_name == "CONCH":
-            self.model, self.transform = create_model_from_pretrained('conch_ViT-B-16', "hf_hub:MahmoodLab/conch")
+            self.model, self.transform = create_model_from_pretrained_conch('conch_ViT-B-16', "hf_hub:MahmoodLab/conch")
         elif self.model_name == "LLama-3-Aloe":
             self.model = AutoModel.from_pretrained("HPAI-BSC/Llama3-Aloe-8B-Alpha")
             self.processor = AutoTokenizer.from_pretrained("HPAI-BSC/Llama3-Aloe-8B-Alpha")
