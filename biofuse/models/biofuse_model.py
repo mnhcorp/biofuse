@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from embedding_extractor import PreTrainedEmbedding
+from biofuse.models.embedding_extractor import PreTrainedEmbedding
 
 class BioFuseModel(nn.Module):
     def __init__(self, models, fusion_method='concat'):
@@ -17,8 +17,12 @@ class BioFuseModel(nn.Module):
         for extractor in self.embedding_extractors:
             embedding = extractor(inputs)
             embeddings.append(embedding)
+
+        # # if only one model is used, return the embedding directly
+        # if len(embeddings) == 1:
+        #     return embeddings[0]
         
-        if self.fusion_method == 'concat':
+        if self.fusion_method == 'concat':            
             fused_embedding = torch.cat(embeddings, dim=-1)
         elif self.fusion_method == 'mean':
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
