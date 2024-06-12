@@ -77,7 +77,7 @@ def main():
     train_dataset, val_dataset = load_data()    
 
     # Initialize BioFuse model
-    model_names = ["BioMedCLIP"] #, "rad-dino"]
+    model_names = ["BioMedCLIP", "PubMedCLIP", "rad-dino"]
     fusion_method = "concat"
     biofuse_model = BioFuseModel(model_names, fusion_method)
 
