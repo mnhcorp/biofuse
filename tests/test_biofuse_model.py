@@ -20,7 +20,7 @@ class TestBioFuseModel(unittest.TestCase):
     }
 
     def setUp(self):
-        self.model_names = ["BioMedCLIP"] #, "BioMistral"]
+        self.model_names = ["BioMedCLIP", "rad-dino"]
         self.fusion_method = "concat"
         self.biofuse_model = BioFuseModel(self.model_names, self.fusion_method)
         self.text = "Patient has a fracture in the left arm."
@@ -37,7 +37,8 @@ class TestBioFuseModel(unittest.TestCase):
         output = self.biofuse_model(input_data)
 
         expected_output_dim = sum([TestBioFuseModel.model_dims[model] for model in self.model_names])
-        print("Expected output dim: ", expected_output_dim)
+        # print("Expected output dim: ", expected_output_dim)
+        # print("Output shape: ", output.shape)
         self.assertEqual(output.shape, (1, expected_output_dim))     
 
     # def test_forward_pass_avg(self):
