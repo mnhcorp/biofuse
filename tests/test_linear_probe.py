@@ -9,28 +9,55 @@ from sklearn.preprocessing import StandardScaler
 from medmnist import BreastMNIST
 # progressbar
 from tqdm import tqdm
-import sys
+import sys, os, glob
+from biofuse.models.image_dataset import BioFuseImageDataset
+
+def custom_collate_fn(batch):
+    images, labels = zip(*batch)
+    return list(images), torch.tensor(labels)
 
 def load_data():
     print("Loading data...")
     train_dataset = BreastMNIST(split='train', size=224, download=True)
     val_dataset = BreastMNIST(split='val', size=224, download=True)
 
-    # Use only a subset of the data for faster training
+    # # Use only a subset of the data for faster training
     # train_dataset = Subset(train_dataset, range(25))
     # val_dataset = Subset(val_dataset, range(10))
-    
-    return train_dataset, val_dataset
 
-def extract_features(dataset, biofuse_model):
+    # Save the images to disk if not already done
+    if not os.path.exists('/tmp/breastmnist_train'):
+        train_dataset.save('/tmp/breastmnist_train')
+        val_dataset.save('/tmp/breastmnist_val')
+
+    train_images_path = '/tmp/breastmnist_train/breastmnist_224'
+    val_images_path = '/tmp/breastmnist_val/breastmnist_224'
+
+    # Construct image paths, glob directory
+    train_image_paths = glob.glob(f'{train_images_path}/*.png')
+    val_image_paths = glob.glob(f'{val_images_path}/*.png')
+    # labels are just _0.png or _1.png etc
+    train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
+    val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
+
+    # Construct the dataste now
+    train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
+    val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
+
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+    
+    return train_loader, val_loader
+
+def extract_features(dataloader, biofuse_model):
     print("Extracting features...")
     features = []
     labels = []    
     # use progress bar
-    for image, label in tqdm(dataset):    
+    for image, label in tqdm(dataloader):
         embedding = biofuse_model(image)
         features.append(embedding.squeeze(0).numpy())
-        labels.append(label)
+        labels.append(label.numpy())
 
     # stack
     # features = torch.cat(features, dim=0)
@@ -74,15 +101,15 @@ def evaluate_model(classifier, features, labels):
         
 def main():
     # Load data
-    train_dataset, val_dataset = load_data()    
+    train_loader, val_loader = load_data()
 
     # Initialize BioFuse model
-    model_names = ["BioMedCLIP", "PubMedCLIP", "rad-dino"]
+    model_names = ["BioMedCLIP"] #, "PubMedCLIP", "rad-dino"]
     fusion_method = "concat"
     biofuse_model = BioFuseModel(model_names, fusion_method)
 
     # Extract features
-    train_features, train_labels = extract_features(train_dataset, biofuse_model)
+    train_features, train_labels = extract_features(train_loader, biofuse_model)
 
     # print("Train features shape: ", train_features.shape)
     # print("Train labels shape: ", train_labels.shape)
@@ -99,7 +126,7 @@ def main():
     classifier, scaler = train_classifier(train_features, train_labels)
     
     # get validation features
-    val_features, val_labels = extract_features(val_dataset, biofuse_model)    
+    val_features, val_labels = extract_features(val_loader, biofuse_model)    
 
     # Evaluate the model
     accuracy = evaluate_model(classifier, scaler.transform(val_features), val_labels)
