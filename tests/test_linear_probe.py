@@ -77,7 +77,7 @@ def train_classifier(features, labels, scaler=None):
     features = scaler.fit_transform(features)
 
     # Train a simple linear classifier
-    classifier = LogisticRegression(max_iter=1000, n_jobs=-1, solver='liblinear')
+    classifier = LogisticRegression(max_iter=1000, solver='liblinear')
     classifier.fit(features, labels)
     return classifier, scaler
 
@@ -104,7 +104,7 @@ def main():
     train_loader, val_loader = load_data()
 
     # Initialize BioFuse model
-    model_names = ["BioMedCLIP"] #, "PubMedCLIP", "rad-dino"]
+    model_names = ["BioMedCLIP", "rad-dino"] #"PubMedCLIP"] #, "rad-dino"]
     fusion_method = "concat"
     biofuse_model = BioFuseModel(model_names, fusion_method)
 

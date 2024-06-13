@@ -62,6 +62,7 @@ class PreTrainedEmbedding(nn.Module):
             raise ValueError(f"Unsupported model: {self.model_name}")
 
     def forward(self, input_data):
+        #print("In PreTrainedEmbedding forward, calling model forward for input of shape: ", input_data.shape)
         with torch.inference_mode():
             if self.model_name == "BioMedCLIP":
                 outputs = self.model.encode_image(input_data)
@@ -70,9 +71,9 @@ class PreTrainedEmbedding(nn.Module):
             elif self.model_name in ["Prov-GigaPath", "UNI"]:
                 outputs = self.model(input_data).squeeze()
             elif self.model_name == "PubMedCLIP":
-                outputs = self.model.get_image_features(input_data)
+                outputs = self.model.get_image_features(**input_data)
             elif self.model_name == "rad-dino":
-                outputs = self.model(input_data).pooler_output
+                outputs = self.model(**input_data).pooler_output
             elif self.model_name == "CheXagent":
                 outputs = self.model.vision_model(input_data).last_hidden_state[:, 0, :]
                 outputs = outputs.detach().cpu().numpy()

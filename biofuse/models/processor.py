@@ -34,7 +34,7 @@ class ModelPreprocessor:
         
         return preprocessor
 
-    def preprocess(self, image):
+    def preprocess(self, image):       
         if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI"]:
             if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:
                 preprocessed_image = self.processor(image).unsqueeze(0)
@@ -52,7 +52,7 @@ class ModelPreprocessor:
                 preprocessed_image = self.processor(image, return_tensors='pt')
         else:
             preprocessed_image = image
-
+        
         return preprocessed_image
 
 class MultiModelPreprocessor:
