@@ -38,13 +38,13 @@ class BioFuseModel(nn.Module):
         # print("Input: ", input)
         # print("Type: ", type(input))
         # For every input image/text, this will return num_models tensors
-        processed_images = self.preprocessor.preprocess(input[0])
+        processed_images = self.preprocessor.preprocess(input)
         embeddings = []       
         
         if self.fusion_method == 'concat':                        
             # No projection layer for concatenation
             for img, extractor in zip(processed_images, self.embedding_extractors):
-                embedding = extractor(img)
+                embedding = extractor(img)                
                 embeddings.append(embedding)
             fused_embedding = torch.cat(embeddings, dim=-1)
             
@@ -52,6 +52,7 @@ class BioFuseModel(nn.Module):
             # For mean, we project to a common dim
             for img, extractor, projection in zip(processed_images, self.embedding_extractors, self.projection_layers):
                 embedding = extractor(img)
+                embedding = embedding.clone().detach().requires_grad_(True)
                 embedding = projection(embedding)
                 embeddings.append(embedding)
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)

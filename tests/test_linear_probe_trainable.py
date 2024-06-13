@@ -12,6 +12,10 @@ from tqdm import tqdm
 import sys, os, glob
 from biofuse.models.image_dataset import BioFuseImageDataset
 
+# Trainable layer imports
+import torch.optim as optim
+import torch.nn as nn
+
 def custom_collate_fn(batch):
     images, labels = zip(*batch)
     return list(images), torch.tensor(labels)
@@ -55,7 +59,7 @@ def extract_features(dataloader, biofuse_model):
     labels = []    
     # use progress bar
     for image, label in tqdm(dataloader):
-        embedding = biofuse_model(image[0])
+        embedding = biofuse_model(image)
         features.append(embedding.squeeze(0).numpy())
         labels.append(label.numpy())
 
@@ -104,23 +108,12 @@ def main():
     train_loader, val_loader = load_data()
 
     # Initialize BioFuse model
-    model_names = ["BioMedCLIP"] #, "rad-dino"] #"PubMedCLIP"] #, "rad-dino"]
+    model_names = ["BioMedCLIP", "rad-dino"] #"PubMedCLIP"] #, "rad-dino"]
     fusion_method = "concat"
     biofuse_model = BioFuseModel(model_names, fusion_method)
 
     # Extract features
     train_features, train_labels = extract_features(train_loader, biofuse_model)
-
-    # print("Train features shape: ", train_features.shape)
-    # print("Train labels shape: ", train_labels.shape)
-    # print(type(train_features))
-    # print(len(train_features))
-    # print(type(train_features[0]))
-    # print(train_features[0].shape)
-    # print(type(train_labels))
-    # print(len(train_labels))
-    # #print(train_labels[0].shape)
-    # print(train_labels[0])
 
     # Train a classifier
     classifier, scaler = train_classifier(train_features, train_labels)
@@ -132,5 +125,54 @@ def main():
     accuracy = evaluate_model(classifier, scaler.transform(val_features), val_labels)
     print("Accuracy: ", accuracy)
 
+# Training the model with validation-informed adjustment
+def train_model():
+    train_dataloader, val_dataloader = load_data()
+
+    model_names = ["BioMedCLIP"]
+    fusion_method = "mean"
+    biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
+
+    optimizer = optim.Adam(biofuse_model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
+
+    num_epochs = 10
+    for epoch in range(num_epochs):
+        biofuse_model.train()
+        for images, labels in train_dataloader:
+            optimizer.zero_grad()
+            embeddings = [biofuse_model(image) for image in images]
+            embeddings_tensor = torch.stack(embeddings).squeeze(1)
+            labels_tensor = torch.tensor(labels).squeeze(0)
+
+            # Convert embeddings and labels to numpy
+            embeddings_np = embeddings_tensor.detach().cpu().numpy()
+            labels_np = labels_tensor.detach().cpu().numpy()
+
+            # Train classifier on embeddings
+            classifier = LogisticRegression(max_iter=1000)
+            classifier.fit(embeddings_np, labels_np)
+            
+            # Evaluate on validation set
+            biofuse_model.eval()
+            val_features, val_labels = extract_features(val_dataloader, biofuse_model)
+            val_features_np = scaler.transform(val_features)
+            val_predictions = classifier.predict(val_features_np)
+            val_accuracy = accuracy_score(val_labels, val_predictions)
+            print(f'Epoch [{epoch+1}/{num_epochs}], Validation Accuracy: {val_accuracy:.4f}')
+
+            # Compute validation loss
+            val_probs = classifier.predict_proba(val_features_np)
+            val_loss = criterion(torch.tensor(val_probs, requires_grad=True), torch.tensor(val_labels))
+            
+            # Backpropagate validation loss
+            optimizer.zero_grad()
+            val_loss.backward()
+            optimizer.step()
+
+        print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {val_loss.item():.4f}')
+
+    print("Training completed.")
+
 if __name__ == "__main__":
-    main()
+    train_model()
