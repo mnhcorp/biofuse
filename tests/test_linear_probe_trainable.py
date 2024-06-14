@@ -11,6 +11,7 @@ from medmnist import BreastMNIST
 from tqdm import tqdm
 import sys, os, glob
 from biofuse.models.image_dataset import BioFuseImageDataset
+import numpy as np
 
 # Trainable layer imports
 import torch.optim as optim
@@ -60,7 +61,8 @@ def extract_features(dataloader, biofuse_model):
     # use progress bar
     for image, label in tqdm(dataloader):
         embedding = biofuse_model(image)
-        features.append(embedding.squeeze(0).numpy())
+        #features.append(embedding.squeeze(0).numpy())
+        features.append(embedding.squeeze(0).detach().numpy())
         labels.append(label.numpy())
 
     # stack
@@ -68,9 +70,9 @@ def extract_features(dataloader, biofuse_model):
     # labels = torch.cat(labels, dim=0)
     
     # convert to numpy and return
-    # return features.numpy(), labels.numpy()
-    return features, labels
-
+    #return torch.tensor(features).detach().numpy(), torch.tensor(labels).detach().numpy()
+    return np.array(features), np.array(labels)
+    
 def train_classifier(features, labels, scaler=None):
     print("Training classifier...")
 
@@ -108,8 +110,8 @@ def main():
     train_loader, val_loader = load_data()
 
     # Initialize BioFuse model
-    model_names = ["BioMedCLIP", "rad-dino"] #"PubMedCLIP"] #, "rad-dino"]
-    fusion_method = "concat"
+    model_names = ["BioMedCLIP"] #"PubMedCLIP"] #, "rad-dino"]
+    fusion_method = "mean"
     biofuse_model = BioFuseModel(model_names, fusion_method)
 
     # Extract features
@@ -129,46 +131,95 @@ def main():
 def train_model():
     train_dataloader, val_dataloader = load_data()
 
-    model_names = ["BioMedCLIP"]
+    model_names = ["BioMedCLIP"] #, "rad-dino"]
     fusion_method = "mean"
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
 
     optimizer = optim.Adam(biofuse_model.parameters(), lr=0.001)
     criterion = nn.CrossEntropyLoss()
 
+    print("Extracting features...")
+    # Extract features once, the pre-trained models are frozen anyway
+    embeddings = []
+    labels = []
+    for image, label in tqdm(train_dataloader):
+        embedding = biofuse_model(image)
+        embeddings.append(embedding)
+        labels.append(label)
+
+    # embeddings is a list of tensors, stack them and remove the batch dimension
+    embeddings_tensor = torch.stack(embeddings).squeeze(1)
+    labels_tensor = torch.tensor(labels) #.squeeze(0)
+
+    # Convert embeddings and labels to numpy
+    embeddings_np = embeddings_tensor.detach().cpu().numpy()
+    labels_np = labels_tensor.detach().cpu().numpy()
+
+    # Scale features
+    scaler = StandardScaler()
+    embeddings_np = scaler.fit_transform(embeddings_np)
+
+    # Now for the validation set
+    val_embeddings = []
+    val_labels = []
+    for image, label in tqdm(val_dataloader):
+        embedding = biofuse_model(image)
+        val_embeddings.append(embedding)
+        val_labels.append(label)
+
+    # embeddings is a list of tensors, stack them and remove the batch dimension
+    val_embeddings_tensor = torch.stack(val_embeddings).squeeze(1)
+    val_labels_tensor = torch.tensor(val_labels) #.squeeze(0)
+
+    # Convert embeddings and labels to numpy
+    val_embeddings_np = val_embeddings_tensor.detach().cpu().numpy()
+    val_labels_np = val_labels_tensor.detach().cpu().numpy()
+
+    # Scale features
+    val_embeddings_np = scaler.transform(val_embeddings_np)
+
     num_epochs = 10
     for epoch in range(num_epochs):
+        print(f"Epoch [{epoch+1}/{num_epochs}]..")
         biofuse_model.train()
-        for images, labels in train_dataloader:
-            optimizer.zero_grad()
-            embeddings = [biofuse_model(image) for image in images]
-            embeddings_tensor = torch.stack(embeddings).squeeze(1)
-            labels_tensor = torch.tensor(labels).squeeze(0)
+        optimizer.zero_grad()
+      
+        # Train classifier on embeddings
+        classifier = LogisticRegression(max_iter=1000, solver='liblinear')
+        classifier.fit(embeddings_np, labels_np)
+        
+        # Evaluate on validation set
+        biofuse_model.eval()
+        val_predictions = classifier.predict(val_embeddings_np)
+        val_accuracy = accuracy_score(val_labels_np, val_predictions)
+        print(f'Epoch [{epoch+1}/{num_epochs}], Validation Accuracy: {val_accuracy:.4f}')
 
-            # Convert embeddings and labels to numpy
-            embeddings_np = embeddings_tensor.detach().cpu().numpy()
-            labels_np = labels_tensor.detach().cpu().numpy()
+        # Compute validation loss
+        probs = classifier.predict_proba(val_embeddings_np)
+        #print(probs)
+        val_logits = torch.tensor(probs, dtype=torch.float32, requires_grad=True)
+        val_labels = torch.tensor(val_labels_np, dtype=torch.long)
+        val_loss = criterion(val_logits, val_labels)
 
-            # Train classifier on embeddings
-            classifier = LogisticRegression(max_iter=1000)
-            classifier.fit(embeddings_np, labels_np)
-            
-            # Evaluate on validation set
-            biofuse_model.eval()
-            val_features, val_labels = extract_features(val_dataloader, biofuse_model)
-            val_features_np = scaler.transform(val_features)
-            val_predictions = classifier.predict(val_features_np)
-            val_accuracy = accuracy_score(val_labels, val_predictions)
-            print(f'Epoch [{epoch+1}/{num_epochs}], Validation Accuracy: {val_accuracy:.4f}')
+        # # Compute validation loss
+        # probs = classifier.predict_proba(val_embeddings_np)
+        # # get the max probability
+        # _, predicted = torch.max(torch.tensor(probs), 1)
+        # # convert to float
+        # #val_logits = val_logits.astype(np.float32)
+        # print(val_labels_np.shape)
+        # print(predicted.shape)
+        # #print the logits
+        # print(val_labels_np)
+        # print(predicted)
+        # val_loss = criterion(torch.tensor(predicted), torch.tensor(val_labels_np))
+        # #val_loss = criterion(torch.tensor(val_logits, requires_grad=True), torch.tensor(val_labels_np))
+        # #val_loss = criterion(torch.tensor(val_logits, dtype=torch.float32), torch.tensor(val_labels, dtype=torch.long))
 
-            # Compute validation loss
-            val_probs = classifier.predict_proba(val_features_np)
-            val_loss = criterion(torch.tensor(val_probs, requires_grad=True), torch.tensor(val_labels))
-            
-            # Backpropagate validation loss
-            optimizer.zero_grad()
-            val_loss.backward()
-            optimizer.step()
+        
+        # Backpropagate validation loss
+        val_loss.backward()
+        optimizer.step()
 
         print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {val_loss.item():.4f}')
 

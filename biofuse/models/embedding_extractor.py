@@ -63,7 +63,7 @@ class PreTrainedEmbedding(nn.Module):
 
     def forward(self, input_data):
         #print("In PreTrainedEmbedding forward, calling model forward for input of shape: ", input_data.shape)
-        with torch.inference_mode():
+        with torch.no_grad():
             if self.model_name == "BioMedCLIP":
                 outputs = self.model.encode_image(input_data)
             elif self.model_name == "CONCH":

@@ -38,7 +38,7 @@ class BioFuseModel(nn.Module):
         # print("Input: ", input)
         # print("Type: ", type(input))
         # For every input image/text, this will return num_models tensors
-        processed_images = self.preprocessor.preprocess(input)
+        processed_images = self.preprocessor.preprocess(input[0])
         embeddings = []       
         
         if self.fusion_method == 'concat':                        

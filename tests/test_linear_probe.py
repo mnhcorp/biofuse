@@ -55,7 +55,7 @@ def extract_features(dataloader, biofuse_model):
     labels = []    
     # use progress bar
     for image, label in tqdm(dataloader):
-        embedding = biofuse_model(image[0])
+        embedding = biofuse_model(image)
         features.append(embedding.squeeze(0).numpy())
         labels.append(label.numpy())
 
