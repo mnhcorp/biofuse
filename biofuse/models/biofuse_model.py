@@ -10,14 +10,15 @@ class BioFuseModel(nn.Module):
         self.fusion_method = fusion_method
         self.projection_dim = projection_dim
         self.preprocessor = MultiModelPreprocessor(models)
-        
         self.embedding_extractors = nn.ModuleList()
         self.projection_layers = nn.ModuleList()
-
         for model in models:
+            embedding_extractor = PreTrainedEmbedding(model)
             self.embedding_extractors.append(PreTrainedEmbedding(model))
-            # Assume each model has its own dimensionality, which we project to a common dimension
-            self.projection_layers.append(nn.Linear(self.get_model_dim(model), projection_dim))            
+
+            projection_layer = nn.Linear(self.get_model_dim(model), projection_dim)
+            self.projection_layers.append(projection_layer)
+        self.cached_raw_embeddings = None
 
     def get_model_dim(self, model_name):
         model_dims = {
@@ -31,32 +32,35 @@ class BioFuseModel(nn.Module):
             "rad-dino": 768,
             "UNI": 1024
         }
+        return model_dims.get(model_name, 512)
 
-        return model_dims.get(model_name, 512)  # default to 512    
-
-    def forward(self, input):
-        # print("Input: ", input)
-        # print("Type: ", type(input))
-        # For every input image/text, this will return num_models tensors
-        processed_images = self.preprocessor.preprocess(input[0])
-        embeddings = []       
-        
-        if self.fusion_method == 'concat':                        
-            # No projection layer for concatenation
+    def forward(self, input, cache_raw_embeddings=False):
+        if self.cached_raw_embeddings is not None and not cache_raw_embeddings:
+            raw_embeddings = self.cached_raw_embeddings
+        else:
+            processed_images = self.preprocessor.preprocess(input[0])
+            raw_embeddings = []
             for img, extractor in zip(processed_images, self.embedding_extractors):
-                embedding = extractor(img)                
-                embeddings.append(embedding)
-            fused_embedding = torch.cat(embeddings, dim=-1)
-            
-        elif self.fusion_method == 'mean':
-            # For mean, we project to a common dim
-            for img, extractor, projection in zip(processed_images, self.embedding_extractors, self.projection_layers):
                 embedding = extractor(img)
-                embedding = embedding.clone().detach().requires_grad_(True)
-                embedding = projection(embedding)
+                raw_embeddings.append(embedding)
+
+            if cache_raw_embeddings:
+                self.cached_raw_embeddings = raw_embeddings
+
+        embeddings = []
+        if self.fusion_method == 'concat':
+            for raw_embedding in raw_embeddings:
+                embeddings.append(raw_embedding)
+            fused_embedding = torch.cat(embeddings, dim=-1)
+        elif self.fusion_method == 'mean':
+            for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):
+                embedding = projection(raw_embedding)
                 embeddings.append(embedding)
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
-        
+
         return fused_embedding
+
+    def clear_cached_embeddings(self):
+        self.cached_raw_embeddings = None

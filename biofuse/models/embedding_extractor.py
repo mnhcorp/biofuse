@@ -19,6 +19,11 @@ class PreTrainedEmbedding(nn.Module):
         self.tokenizer = None
         self.login_to_hf()
         self._load_model()
+        self._freeze_parameters()
+
+    def _freeze_parameters(self):
+        for param in self.model.parameters():
+            param.requires_grad = False
 
     def login_to_hf(self):
         # set HF_TOKEN environment variable

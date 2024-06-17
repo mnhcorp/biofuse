@@ -4,7 +4,6 @@ from biofuse.models.embedding_extractor import PreTrainedEmbedding
 from PIL import Image
 from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import accuracy_score
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from medmnist import BreastMNIST
 # progressbar
@@ -16,6 +15,15 @@ import numpy as np
 # Trainable layer imports
 import torch.optim as optim
 import torch.nn as nn
+
+class LogisticRegression(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(LogisticRegression, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
+
+    def forward(self, x):
+        #outputs = torch.sigmoid(self.linear(x))
+        return self.linear(x)
 
 def custom_collate_fn(batch):
     images, labels = zip(*batch)
@@ -39,8 +47,8 @@ def load_data():
     val_images_path = '/tmp/breastmnist_val/breastmnist_224'
 
     # Construct image paths, glob directory
-    train_image_paths = glob.glob(f'{train_images_path}/*.png')
-    val_image_paths = glob.glob(f'{val_images_path}/*.png')
+    train_image_paths = glob.glob(f'{train_images_path}/*.png')[:100]
+    val_image_paths = glob.glob(f'{val_images_path}/*.png')[:20]
     # labels are just _0.png or _1.png etc
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
     val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
@@ -64,68 +72,46 @@ def extract_features(dataloader, biofuse_model):
         #features.append(embedding.squeeze(0).numpy())
         features.append(embedding.squeeze(0).detach().numpy())
         labels.append(label.numpy())
-
-    # stack
-    # features = torch.cat(features, dim=0)
-    # labels = torch.cat(labels, dim=0)
-    
-    # convert to numpy and return
-    #return torch.tensor(features).detach().numpy(), torch.tensor(labels).detach().numpy()
+   
     return np.array(features), np.array(labels)
     
-def train_classifier(features, labels, scaler=None):
-    print("Training classifier...")
 
-    if scaler is None:        
-        scaler = StandardScaler()
+def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False):
+    embeddings = []
+    labels = []
     
-    # Scale features
-    features = scaler.fit_transform(features)
+    for image, label in tqdm(dataloader):
+        embedding = biofuse_model(image, cache_raw_embeddings=cache_raw_embeddings)
+        embeddings.append(embedding)
+        labels.append(label)
+    
+    # Embeddings is a list of tensors, stack them and remove the batch dimension
+    embeddings_tensor = torch.stack(embeddings).squeeze(1)
+    labels_tensor = torch.tensor(labels)        
+    
+    return embeddings_tensor, labels_tensor
 
-    # Train a simple linear classifier
-    classifier = LogisticRegression(max_iter=1000, solver='liblinear')
-    classifier.fit(features, labels)
-    return classifier, scaler
-
-# KNN classifier
-from sklearn.neighbors import KNeighborsClassifier
-def train_knn(features, labels):
-    print("Training classifier...")
-    # Scale
-    scaler = StandardScaler()
-    features = scaler.fit_transform(features)
-
-    # Train a simple linear classifier
-    classifier = KNeighborsClassifier(n_neighbors=3)
-    classifier.fit(features, labels)
-    return classifier
-
-def evaluate_model(classifier, features, labels):
-    print("Evaluating model...")
-    predictions = classifier.predict(features)
-    return accuracy_score(labels, predictions)
+def print_trainable_parameters(model):
+    print("Trainable parameters:")
+    for name, param in model.named_parameters():
+        # numel
         
-def main():
-    # Load data
-    train_loader, val_loader = load_data()
+        if param.requires_grad:
+            print(name, param.shape)
+            print(name, param.numel())
 
-    # Initialize BioFuse model
-    model_names = ["BioMedCLIP"] #"PubMedCLIP"] #, "rad-dino"]
-    fusion_method = "mean"
-    biofuse_model = BioFuseModel(model_names, fusion_method)
+def log_projection_layer_weights(model, epoch, stage):
+    for i, layer in enumerate(model.projection_layers):
+        weights = layer.weight.data
+        print(f"Epoch [{epoch}] - {stage} - Projection Layer {i} Weights: {weights.mean().item():.6f} ± {weights.std().item():.6f}")
 
-    # Extract features
-    train_features, train_labels = extract_features(train_loader, biofuse_model)
-
-    # Train a classifier
-    classifier, scaler = train_classifier(train_features, train_labels)
-    
-    # get validation features
-    val_features, val_labels = extract_features(val_loader, biofuse_model)    
-
-    # Evaluate the model
-    accuracy = evaluate_model(classifier, scaler.transform(val_features), val_labels)
-    print("Accuracy: ", accuracy)
+def log_projection_layer_gradients(model, epoch, stage):
+    for i, layer in enumerate(model.projection_layers):
+        if layer.weight.grad is not None:
+            grad = layer.weight.grad.data
+            print(f"Epoch [{epoch}] - {stage} - Projection Layer {i} Gradients: {grad.mean().item():.6f} ± {grad.std().item():.6f}")
+        else:
+            print(f"Epoch [{epoch}] - {stage} - Projection Layer {i} Gradients: None")
 
 # Training the model with validation-informed adjustment
 def train_model():
@@ -134,95 +120,88 @@ def train_model():
     model_names = ["BioMedCLIP"] #, "rad-dino"]
     fusion_method = "mean"
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
-
-    optimizer = optim.Adam(biofuse_model.parameters(), lr=0.001)
-    criterion = nn.CrossEntropyLoss()
+    
+    # Show me the trainable layers
+    print_trainable_parameters(biofuse_model)
 
     print("Extracting features...")
-    # Extract features once, the pre-trained models are frozen anyway
-    embeddings = []
-    labels = []
-    for image, label in tqdm(train_dataloader):
-        embedding = biofuse_model(image)
-        embeddings.append(embedding)
-        labels.append(label)
+    # Extract features from the training set
+    embeddings_np, labels_np = generate_embeddings(train_dataloader, biofuse_model, cache_raw_embeddings=True)
+    
+    # Extract features from the validation set
+    val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True)
 
-    # embeddings is a list of tensors, stack them and remove the batch dimension
-    embeddings_tensor = torch.stack(embeddings).squeeze(1)
-    labels_tensor = torch.tensor(labels) #.squeeze(0)
+    # Set up the classifier
+    input_dim = embeddings_np.shape[1]
+    output_dim = 1 # binary classification
 
-    # Convert embeddings and labels to numpy
-    embeddings_np = embeddings_tensor.detach().cpu().numpy()
-    labels_np = labels_tensor.detach().cpu().numpy()
+    print("Setting up classifier...")
+    print("Input dimension:", input_dim)
+    print("Output dimension:", output_dim)
 
-    # Scale features
-    scaler = StandardScaler()
-    embeddings_np = scaler.fit_transform(embeddings_np)
+    classifier = LogisticRegression(input_dim, output_dim)
 
-    # Now for the validation set
-    val_embeddings = []
-    val_labels = []
-    for image, label in tqdm(val_dataloader):
-        embedding = biofuse_model(image)
-        val_embeddings.append(embedding)
-        val_labels.append(label)
+    optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.001)
+    #criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
 
-    # embeddings is a list of tensors, stack them and remove the batch dimension
-    val_embeddings_tensor = torch.stack(val_embeddings).squeeze(1)
-    val_labels_tensor = torch.tensor(val_labels) #.squeeze(0)
-
-    # Convert embeddings and labels to numpy
-    val_embeddings_np = val_embeddings_tensor.detach().cpu().numpy()
-    val_labels_np = val_labels_tensor.detach().cpu().numpy()
-
-    # Scale features
-    val_embeddings_np = scaler.transform(val_embeddings_np)
-
-    num_epochs = 10
+    num_epochs = 25
+    best_val_loss = float('inf')
     for epoch in range(num_epochs):
         print(f"Epoch [{epoch+1}/{num_epochs}]..")
         biofuse_model.train()
+        classifier.train()
         optimizer.zero_grad()
-      
+
+        # Compute embeddings and labels
+        embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse_model)
+
         # Train classifier on embeddings
-        classifier = LogisticRegression(max_iter=1000, solver='liblinear')
-        classifier.fit(embeddings_np, labels_np)
+        # embeddings_tensor = torch.tensor(embeddings_np, dtype=torch.float32, requires_grad=True)
+        # labels_tensor = torch.tensor(labels_np, dtype=torch.long)
+
+        # print("Logits shape:", classifier(embeddings_tensor).shape)
+        # print("Labels shape:", labels_tensor.shape)
+        # print("Labels:", labels_tensor)
+
+        # Train classifier
+        logits = classifier(embeddings_tensor)
+        loss = criterion(logits, labels_tensor.unsqueeze(1).float())
+        loss.backward()            
+        optimizer.step()  
+
+        # Log the projection layer weights and gradients
+        log_projection_layer_weights(biofuse_model, epoch, "Train")        
+        log_projection_layer_gradients(biofuse_model, epoch, "Train")
         
         # Evaluate on validation set
         biofuse_model.eval()
-        val_predictions = classifier.predict(val_embeddings_np)
-        val_accuracy = accuracy_score(val_labels_np, val_predictions)
-        print(f'Epoch [{epoch+1}/{num_epochs}], Validation Accuracy: {val_accuracy:.4f}')
+        classifier.eval()
 
-        # Compute validation loss
-        probs = classifier.predict_proba(val_embeddings_np)
-        #print(probs)
-        val_logits = torch.tensor(probs, dtype=torch.float32, requires_grad=True)
-        val_labels = torch.tensor(val_labels_np, dtype=torch.long)
-        val_loss = criterion(val_logits, val_labels)
+        # Features for the validation set
+        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse_model)
 
-        # # Compute validation loss
-        # probs = classifier.predict_proba(val_embeddings_np)
-        # # get the max probability
-        # _, predicted = torch.max(torch.tensor(probs), 1)
-        # # convert to float
-        # #val_logits = val_logits.astype(np.float32)
-        # print(val_labels_np.shape)
-        # print(predicted.shape)
-        # #print the logits
-        # print(val_labels_np)
-        # print(predicted)
-        # val_loss = criterion(torch.tensor(predicted), torch.tensor(val_labels_np))
-        # #val_loss = criterion(torch.tensor(val_logits, requires_grad=True), torch.tensor(val_labels_np))
-        # #val_loss = criterion(torch.tensor(val_logits, dtype=torch.float32), torch.tensor(val_labels, dtype=torch.long))
+        with torch.no_grad():
+            # val_embeddings_tensor = torch.tensor(val_embeddings_np, dtype=torch.float32, requires_grad=True)
+            # val_labels_tensor = torch.tensor(val_labels_np, dtype=torch.long)
+            val_logits = classifier(val_embeddings_tensor)
 
-        
-        # Backpropagate validation loss
-        val_loss.backward()
-        optimizer.step()
+            val_loss = criterion(val_logits, val_labels_tensor.unsqueeze(1).float())
+            # Calculate Validation Accuracy
+            val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
+            val_accuracy = (val_predictions.squeeze() == val_labels_tensor).float().mean()
+            print(f"Validation Accuracy: {val_accuracy.item():.4f}")
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+            
+            
+        print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}')        
 
-        print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {val_loss.item():.4f}')
+        #PATIENCE=5
+        # stop when validation loss increases or stops decreasing after PATIENCE epochs
+        #if val_loss > best_val_loss and 
 
+               
     print("Training completed.")
 
 if __name__ == "__main__":
