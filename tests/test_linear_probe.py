@@ -111,6 +111,15 @@ def main():
     # Extract features
     train_features, train_labels = extract_features(train_loader, biofuse_model)
 
+    # get the first ten embeddings
+    e10 = train_features[:10]
+    # for each embedding print the mean of that embedding
+    for e in e10:
+        print(f"Embedding mean: {e.mean()}")
+
+    sys.exit(1)
+
+
     # print("Train features shape: ", train_features.shape)
     # print("Train labels shape: ", train_labels.shape)
     # print(type(train_features))
