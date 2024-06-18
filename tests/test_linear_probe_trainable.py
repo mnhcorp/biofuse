@@ -66,8 +66,8 @@ def load_data():
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
 
     # Use only a subset
-    train_image_paths = train_image_paths[:100]
-    val_image_paths = val_image_paths[:20]
+    #train_image_paths = train_image_paths[:200]
+    #val_image_paths = val_image_paths[:50]
 
     # labels are just _0.png or _1.png etc
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
@@ -96,13 +96,13 @@ def extract_features(dataloader, biofuse_model):
     return np.array(features), np.array(labels)
     
 
-def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False):
+def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True):
     embeddings = []
     labels = []    
     
     #for image, label in dataloader:
     for index, (image, label) in tqdm(enumerate(dataloader)):
-        embedding = biofuse_model(image, cache_raw_embeddings=cache_raw_embeddings, index=index)
+        embedding = biofuse_model(image, cache_raw_embeddings=cache_raw_embeddings, index=index, is_training=is_training)
         # generate a random tensor for now
         #embedding = torch.randn(512)
         embeddings.append(embedding)
@@ -163,7 +163,7 @@ def train_model():
 
     model_names = ["BioMedCLIP"] # ["rad-dino"] #
     fusion_method = "mean"
-    biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=256)
+    biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
     
     # Show me the trainable layers
     print_trainable_parameters(biofuse_model)
@@ -173,7 +173,7 @@ def train_model():
     embeddings_np, labels_np = generate_embeddings(train_dataloader, biofuse_model, cache_raw_embeddings=True)
     
     # Extract features from the validation set
-    val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True)
+    val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True, is_training=False)
 
     # Set up the classifier
     input_dim = embeddings_np.shape[1]
@@ -190,7 +190,7 @@ def train_model():
     #criterion = nn.CrossEntropyLoss()
     criterion = nn.BCEWithLogitsLoss()
 
-    num_epochs = 10
+    num_epochs = 25
     best_val_loss = float('inf')
 
     previous_train_embeddings = None  # Store embeddings from the previous epoch
@@ -205,7 +205,7 @@ def train_model():
         # Compute embeddings and labels
         embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse_model)
         # Print shapes
-        print("Embeddings shape:", embeddings_tensor.shape)
+        #print("Embeddings shape:", embeddings_tensor.shape)
 
         # get the first ten embeddings
         # e0 = embeddings_tensor[:10]
@@ -235,11 +235,11 @@ def train_model():
         # print("Labels:", labels_tensor)
 
         # Get a numpy copy of the embeddings and labels
-        embeddings_np = embeddings_tensor.clone().detach().numpy()
-        labels_np = labels_tensor.clone().detach().numpy()
+        # embeddings_np = embeddings_tensor.clone().detach().numpy()
+        # labels_np = labels_tensor.clone().detach().numpy()
 
-        # Train a simple linear classifier
-        classifier_sk, scaler = train_classifier(embeddings_np, labels_np)
+        # # Train a simple linear classifier
+        # classifier_sk, scaler = train_classifier(embeddings_np, labels_np)
 
         # Train classifier
         logits = classifier(embeddings_tensor)
@@ -256,17 +256,17 @@ def train_model():
         classifier.eval()
 
         # Features for the validation set
-        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse_model)
+        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse_model, is_training=False)
         # print shape
-        print("Validation Embeddings shape:", val_embeddings_tensor.shape)
+        #print("Validation Embeddings shape:", val_embeddings_tensor.shape)
 
         # # Get a numpy copy of the embeddings and labels
-        val_embeddings_np = val_embeddings_tensor.clone().detach().numpy()
-        val_labels_np = val_labels_tensor.clone().detach().numpy()
+        # val_embeddings_np = val_embeddings_tensor.clone().detach().numpy()
+        # val_labels_np = val_labels_tensor.clone().detach().numpy()
 
-        # # Evaluate the model
-        sk_accuracy = evaluate_model(classifier_sk, scaler.transform(val_embeddings_np), val_labels_np)
-        print(f"Epoch [{epoch+1}/{num_epochs}], SKLearn Validation Accuracy: {sk_accuracy:.4f}")
+        # # # Evaluate the model
+        # sk_accuracy = evaluate_model(classifier_sk, scaler.transform(val_embeddings_np), val_labels_np)
+        # print(f"Epoch [{epoch+1}/{num_epochs}], SKLearn Validation Accuracy: {sk_accuracy:.4f}")
    
         # Check for changes in validation embeddings
         # if previous_val_embeddings is not None:

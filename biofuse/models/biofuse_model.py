@@ -14,22 +14,17 @@ class BioFuseModel(nn.Module):
         self.projection_layers = nn.ModuleList()
 
         for model in models:
-            embedding_extractor = PreTrainedEmbedding(model)
             self.embedding_extractors.append(PreTrainedEmbedding(model))
 
-            #projection_layer = nn.Linear(self.get_model_dim(model), projection_dim)
-
-            # Create an MLP for each projection layer
             projection_layer = nn.Sequential(
                 nn.Linear(self.get_model_dim(model), projection_dim),
-                # nn.Linear(self.get_model_dim(model), hidden_dim),
-                # nn.ReLU(),  # Non-linear activation
-                # nn.Linear(hidden_dim, projection_dim)
-                nn.LayerNorm(projection_dim)
+                #nn.ReLU(),
+                #nn.LayerNorm(projection_dim)
             )
             self.projection_layers.append(projection_layer)
             
-        self.cached_raw_embeddings = []
+        self.cached_train_embeddings = {model: {} for model in models}
+        self.cached_val_embeddings = {model: {} for model in models}
 
     def get_model_dim(self, model_name):
         model_dims = {
@@ -45,9 +40,11 @@ class BioFuseModel(nn.Module):
         }
         return model_dims.get(model_name, 512)
 
-    def forward(self, input, cache_raw_embeddings=False, projection=True, index=None):
-        if self.cached_raw_embeddings is not None and not cache_raw_embeddings and index is not None:            
-            raw_embeddings = self.cached_raw_embeddings[index]
+    def forward(self, input, cache_raw_embeddings=False, index=None, is_training=True):
+        cache = self.cached_train_embeddings if is_training else self.cached_val_embeddings
+
+        if index is not None and all(index in cache[model] for model in self.models):
+            raw_embeddings = [cache[model][index] for model in self.models]
         else:
             processed_images = self.preprocessor.preprocess(input[0])
             raw_embeddings = []
@@ -55,9 +52,12 @@ class BioFuseModel(nn.Module):
                 embedding = extractor(img)
                 raw_embeddings.append(embedding)
 
-            if cache_raw_embeddings:
-                # append the raw embeddings to the cache
-                self.cached_raw_embeddings.append(raw_embeddings)
+            if cache_raw_embeddings and index is not None:
+                for model, embedding in zip(self.models, raw_embeddings):
+                    cache[model][index] = embedding
+
+        # Print size of the cache to check if it is growing
+        #print("Size of cache: ", sum([len(cache[model]) for model in self.models]))
 
         embeddings = []
         if self.fusion_method == 'concat':
@@ -65,11 +65,7 @@ class BioFuseModel(nn.Module):
                 embeddings.append(raw_embedding)
             fused_embedding = torch.cat(embeddings, dim=-1)
         elif self.fusion_method == 'mean':
-            for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):                
-                # if len(self.models) > 1:                    
-                #     embedding = projection(raw_embedding)                
-                # else:
-                #     
+            for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):
                 embedding = projection(raw_embedding)
                 embeddings.append(embedding)
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
@@ -79,4 +75,5 @@ class BioFuseModel(nn.Module):
         return fused_embedding
 
     def clear_cached_embeddings(self):
-        self.cached_raw_embeddings = None
+        self.cached_train_embeddings = {model: {} for model in self.models}
+        self.cached_val_embeddings = {model: {} for model in self.models}
