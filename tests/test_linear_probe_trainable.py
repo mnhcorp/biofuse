@@ -112,7 +112,7 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
     labels = []    
     
     #for image, label in dataloader:
-    for index, (image, label) in tqdm(enumerate(dataloader)):
+    for index, (image, label) in enumerate(dataloader):
         if is_Test:
             # use forward_test
             embedding = biofuse_model.forward_test(image)
@@ -205,7 +205,7 @@ def train_model():
     #criterion = nn.CrossEntropyLoss()
     criterion = nn.BCEWithLogitsLoss()
 
-    num_epochs = 50
+    num_epochs = 100
     best_val_loss = float('inf')
 
     previous_train_embeddings = None  # Store embeddings from the previous epoch
@@ -213,9 +213,10 @@ def train_model():
 
     best_model = None
     best_val_acc = 0.0
+    best_loss = float('inf')
 
-    for epoch in range(num_epochs):
-        print(f"Epoch [{epoch+1}/{num_epochs}]..")
+    for epoch in tqdm(range(num_epochs)):
+        #print(f"Epoch [{epoch+1}/{num_epochs}]..")
         biofuse_model.train()
         classifier.train()
         optimizer.zero_grad()
@@ -311,17 +312,19 @@ def train_model():
 
             if val_accuracy > best_val_acc:
                 best_val_acc = val_accuracy
+                best_loss = val_loss
                 best_model = copy.deepcopy(biofuse_model.state_dict())
                 #
             
-        print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
-        print("-"*80)
+        #print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
+        #print("-"*80)
 
         #PATIENCE=5
         # stop when validation loss increases or stops decreasing after PATIENCE epochs
         #if val_loss > best_val_loss and 
 
-               
+    # Print the best validation accuracy and loss 
+    print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")          
     print("Training completed.")
 
     # evaluate on the best model
