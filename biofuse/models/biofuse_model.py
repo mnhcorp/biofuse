@@ -74,6 +74,28 @@ class BioFuseModel(nn.Module):
 
         return fused_embedding
 
+    def forward_test(self, input):
+        processed_images = self.preprocessor.preprocess(input[0])
+        raw_embeddings = []
+        for img, extractor in zip(processed_images, self.embedding_extractors):
+            embedding = extractor(img)
+            raw_embeddings.append(embedding)
+
+        embeddings = []
+        if self.fusion_method == 'concat':
+            for raw_embedding in raw_embeddings:
+                embeddings.append(raw_embedding)
+            fused_embedding = torch.cat(embeddings, dim=-1)
+        elif self.fusion_method == 'mean':
+            for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):
+                embedding = projection(raw_embedding)
+                embeddings.append(embedding)
+            fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
+        else:
+            raise ValueError(f'Fusion method {self.fusion_method} not supported')
+
+        return fused_embedding
+
     def clear_cached_embeddings(self):
         self.cached_train_embeddings = {model: {} for model in self.models}
         self.cached_val_embeddings = {model: {} for model in self.models}

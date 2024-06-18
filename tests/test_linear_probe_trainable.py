@@ -12,10 +12,13 @@ from tqdm import tqdm
 import sys, os, glob
 from biofuse.models.image_dataset import BioFuseImageDataset
 import numpy as np
+import copy
 
 # Trainable layer imports
 import torch.optim as optim
 import torch.nn as nn
+
+FAST_RUN = False
 
 class LogisticRegression2(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -48,6 +51,7 @@ def load_data():
     print("Loading data...")
     train_dataset = BreastMNIST(split='train', size=224, download=True)
     val_dataset = BreastMNIST(split='val', size=224, download=True)
+    test_dataset = BreastMNIST(split='test', size=224, download=True)
 
     # # Use only a subset of the data for faster training
     # train_dataset = Subset(train_dataset, range(25))
@@ -57,30 +61,37 @@ def load_data():
     if not os.path.exists('/tmp/breastmnist_train'):
         train_dataset.save('/tmp/breastmnist_train')
         val_dataset.save('/tmp/breastmnist_val')
+        test_dataset.save('/tmp/breastmnist_test')
 
     train_images_path = '/tmp/breastmnist_train/breastmnist_224'
     val_images_path = '/tmp/breastmnist_val/breastmnist_224'
+    test_images_path = '/tmp/breastmnist_test/breastmnist_224'
 
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
+    test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
-    # Use only a subset
-    #train_image_paths = train_image_paths[:200]
-    #val_image_paths = val_image_paths[:50]
-
+    if FAST_RUN:
+        train_image_paths = train_image_paths[:100]
+        val_image_paths = val_image_paths[:25]
+        test_image_paths = test_image_paths[:25]
+    
     # labels are just _0.png or _1.png etc
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
     val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
+    test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
 
     # Construct the dataste now
     train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
     val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
+    test_dataset = BioFuseImageDataset(test_image_paths, test_labels)
 
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     
-    return train_loader, val_loader
+    return train_loader, val_loader, test_loader
 
 def extract_features(dataloader, biofuse_model):
     print("Extracting features...")
@@ -96,13 +107,17 @@ def extract_features(dataloader, biofuse_model):
     return np.array(features), np.array(labels)
     
 
-def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True):
+def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True, is_Test=False):
     embeddings = []
     labels = []    
     
     #for image, label in dataloader:
     for index, (image, label) in tqdm(enumerate(dataloader)):
-        embedding = biofuse_model(image, cache_raw_embeddings=cache_raw_embeddings, index=index, is_training=is_training)
+        if is_Test:
+            # use forward_test
+            embedding = biofuse_model.forward_test(image)
+        else:
+            embedding = biofuse_model(image, cache_raw_embeddings=cache_raw_embeddings, index=index, is_training=is_training)
         # generate a random tensor for now
         #embedding = torch.randn(512)
         embeddings.append(embedding)
@@ -159,9 +174,9 @@ def evaluate_model(classifier, features, labels):
         
 # Training the model with validation-informed adjustment
 def train_model():
-    train_dataloader, val_dataloader = load_data()
+    train_dataloader, val_dataloader, test_dataloader = load_data()
 
-    model_names = ["BioMedCLIP"] # ["rad-dino"] #
+    model_names = ["BioMedCLIP"] #, "rad-dino"] #
     fusion_method = "mean"
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
     
@@ -190,11 +205,14 @@ def train_model():
     #criterion = nn.CrossEntropyLoss()
     criterion = nn.BCEWithLogitsLoss()
 
-    num_epochs = 25
+    num_epochs = 50
     best_val_loss = float('inf')
 
     previous_train_embeddings = None  # Store embeddings from the previous epoch
     previous_val_embeddings = None  # Store embeddings from the previous epoch
+
+    best_model = None
+    best_val_acc = 0.0
 
     for epoch in range(num_epochs):
         print(f"Epoch [{epoch+1}/{num_epochs}]..")
@@ -290,7 +308,11 @@ def train_model():
             # Calculate Validation Accuracy
             val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
             val_accuracy = (val_predictions.squeeze() == val_labels_tensor).float().mean()        
-            
+
+            if val_accuracy > best_val_acc:
+                best_val_acc = val_accuracy
+                best_model = copy.deepcopy(biofuse_model.state_dict())
+                #
             
         print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
         print("-"*80)
@@ -301,6 +323,18 @@ def train_model():
 
                
     print("Training completed.")
+
+    # evaluate on the best model
+    biofuse_model.load_state_dict(best_model)
+    biofuse_model.eval()
+
+    with torch.no_grad():
+        test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse_model, is_Test=True)
+        test_logits = classifier(test_embeddings_tensor)
+        test_predictions = (torch.sigmoid(test_logits) > 0.5).float()
+        test_accuracy = (test_predictions.squeeze() == test_labels_tensor).float().mean()
+
+    print(f"Test Accuracy: {test_accuracy:.4f}")
 
 if __name__ == "__main__":
     train_model()
