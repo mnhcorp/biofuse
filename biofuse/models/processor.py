@@ -37,11 +37,11 @@ class ModelPreprocessor:
     def preprocess(self, image):       
         if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI"]:
             if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:
-                preprocessed_image = self.processor(image).unsqueeze(0)
+                preprocessed_image = self.processor(image).unsqueeze(0).to("cuda")
             elif self.model_name == "Prov-GigaPath":
-                preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0)
+                preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
             elif self.model_name in ["PubMedCLIP", "rad-dino"]:
-                preprocessed_image = self.processor(images=image, return_tensors="pt")
+                preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda")
             else:
                 preprocessed_image = self.processor(image)
         elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
@@ -49,7 +49,7 @@ class ModelPreprocessor:
                 preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda", dtype=torch.float16)
                 preprocessed_image['pixel_values'] = preprocessed_image['pixel_values'].squeeze(1).to("cuda", dtype=torch.float16)
             else:
-                preprocessed_image = self.processor(image, return_tensors='pt')
+                preprocessed_image = self.processor(image, return_tensors='pt').to("cuda")
         else:
             preprocessed_image = image
         

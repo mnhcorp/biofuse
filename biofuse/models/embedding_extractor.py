@@ -65,6 +65,9 @@ class PreTrainedEmbedding(nn.Module):
             self.processor = model_info["tokenizer"]
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
+        
+        # Move model to GPU
+        self.model = self.model.to("cuda")
 
     def forward(self, input_data):
         #print("In PreTrainedEmbedding forward, calling model forward for input of shape: ", input_data.shape)

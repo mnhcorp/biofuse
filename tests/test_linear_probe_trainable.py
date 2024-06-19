@@ -181,9 +181,13 @@ def evaluate_model(classifier, features, labels):
 def train_model():
     train_dataloader, val_dataloader, test_dataloader = load_data()
 
-    model_names = ["BioMedCLIP"] #, "rad-dino"] #
+    #model_names =  ["rad-dino"] 
+    #model_names =  ["BioMedCLIP"]
+    model_names = ["BioMedCLIP", "rad-dino"]
     fusion_method = "mean"
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
+    # Move to GPU
+    biofuse_model = biofuse_model.to("cuda")
     
     # Show me the trainable layers
     # print_trainable_parameters(biofuse_model)
@@ -197,24 +201,15 @@ def train_model():
 
     # Set up the classifier
     input_dim = embeddings_np.shape[1]
-    output_dim = 1 # binary classification
-
-    # print("Setting up classifier...")
-    # print("Input dimension:", input_dim)
-    # print("Output dimension:", output_dim)
+    output_dim = 1 # binary classification   
 
     classifier = LogisticRegression2(input_dim, output_dim)
+    classifier = classifier.to("cuda")
     #classifier = MLPClassifier(input_dim, hidden_dim=64, output_dim=output_dim)
 
     optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.001)
     #criterion = nn.CrossEntropyLoss()
     criterion = nn.BCEWithLogitsLoss()
-
-    
-    best_val_loss = float('inf')
-
-    previous_train_embeddings = None  # Store embeddings from the previous epoch
-    previous_val_embeddings = None  # Store embeddings from the previous epoch
 
     best_model = None
     best_val_acc = 0.0
@@ -229,6 +224,7 @@ def train_model():
 
         # Compute embeddings and labels
         embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse_model)
+        labels_tensor = labels_tensor.to("cuda")
        
         # Train classifier
         logits = classifier(embeddings_tensor)
@@ -246,6 +242,7 @@ def train_model():
 
         # Features for the validation set
         val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse_model, is_training=False)
+        val_labels_tensor = val_labels_tensor.to("cuda")
 
         with torch.no_grad():
             val_logits = classifier(val_embeddings_tensor)
