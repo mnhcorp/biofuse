@@ -61,13 +61,19 @@ class BioFuseModel(nn.Module):
 
         embeddings = []
         if self.fusion_method == 'concat':
-            for raw_embedding in raw_embeddings:
-                embeddings.append(raw_embedding)
-            fused_embedding = torch.cat(embeddings, dim=-1)
-        elif self.fusion_method == 'mean':
+            #for raw_embedding in raw_embeddings:
             for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):
                 embedding = projection(raw_embedding)
                 embeddings.append(embedding)
+            fused_embedding = torch.cat(embeddings, dim=-1)
+        elif self.fusion_method == 'mean':
+            for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):
+                embedding = projection(raw_embedding)                
+                # Apply dropout
+                #embedding = nn.functional.dropout(embedding, p=0.5, training=self.training)
+                embeddings.append(embedding)
+                # generate random embedding
+                # embeddings.append(torch.randn(embedding.size()).to(embedding.device))
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
@@ -83,8 +89,10 @@ class BioFuseModel(nn.Module):
 
         embeddings = []
         if self.fusion_method == 'concat':
-            for raw_embedding in raw_embeddings:
-                embeddings.append(raw_embedding)
+            #for raw_embedding in raw_embeddings:
+            for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):
+                embedding = projection(raw_embedding)
+                embeddings.append(embedding)
             fused_embedding = torch.cat(embeddings, dim=-1)
         elif self.fusion_method == 'mean':
             for raw_embedding, projection in zip(raw_embeddings, self.projection_layers):

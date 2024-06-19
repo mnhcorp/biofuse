@@ -19,7 +19,7 @@ import torch.optim as optim
 import torch.nn as nn
 
 FAST_RUN = False
-NUM_EPOCHS = 50
+NUM_EPOCHS = 100
 
 class LogisticRegression2(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -108,7 +108,7 @@ def extract_features(dataloader, biofuse_model):
     return np.array(features), np.array(labels)
     
 
-def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True, is_Test=False, progress_bar=False):
+def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True, is_test=False, progress_bar=False):
     embeddings = []
     labels = []    
 
@@ -118,7 +118,7 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
     
     #for image, label in dataloader:
     for index, (image, label) in data_iter:
-        if is_Test:
+        if is_test:
             # use forward_test
             embedding = biofuse_model.forward_test(image)
         else:
@@ -176,6 +176,39 @@ def evaluate_model(classifier, features, labels):
     print("Evaluating model...")
     predictions = classifier.predict(features)
     return accuracy_score(labels, predictions)
+
+def standalone_eval(train_dataloader, val_dataloader, model_path, models, fusion_method, projection_dim):    
+    biofuse = BioFuseModel(models, fusion_method, projection_dim=projection_dim)
+
+    # Load the state dictionary
+    state_dict = torch.load(model_path)
+    biofuse.load_state_dict(state_dict)
+    biofuse = biofuse.to("cuda")
+
+    # Extract features from the training set
+    embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
+
+    # convert to numpy
+    embeddings_np = embeddings_tensor.cpu().detach().numpy()
+    labels_np = labels_tensor.cpu().detach().numpy()
+
+    # Train a simple linear classifier
+    classifier, scaler = train_classifier(embeddings_np, labels_np)
+
+    # Extract features from the validation set
+    val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
+
+    # convert to numpy
+    val_embeddings_np = val_embeddings_tensor.cpu().detach().numpy()
+    val_labels_np = val_labels_tensor.cpu().detach().numpy()
+
+    # Scale features
+    val_embeddings_np = scaler.transform(val_embeddings_np)
+
+    # Evaluate the model
+    val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
+    print(f"Validation Accuracy: {val_accuracy:.4f}")
+
         
 # Training the model with validation-informed adjustment
 def train_model():
@@ -183,9 +216,12 @@ def train_model():
 
     #model_names =  ["rad-dino"] 
     #model_names =  ["BioMedCLIP"]
-    model_names = ["BioMedCLIP", "rad-dino"]
+    #model_names = ["PubMedCLIP"]
+    model_names = ["BioMedCLIP", "PubMedCLIP", "rad-dino"]
+    #model_names = ["BioMedCLIP", "rad-dino"]
     fusion_method = "mean"
-    biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
+    projection_dim = 512
+    biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=projection_dim)
     # Move to GPU
     biofuse_model = biofuse_model.to("cuda")
     
@@ -207,7 +243,7 @@ def train_model():
     classifier = classifier.to("cuda")
     #classifier = MLPClassifier(input_dim, hidden_dim=64, output_dim=output_dim)
 
-    optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.001)
+    optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.005)
     #criterion = nn.CrossEntropyLoss()
     criterion = nn.BCEWithLogitsLoss()
 
@@ -258,7 +294,7 @@ def train_model():
                 best_model = copy.deepcopy(biofuse_model.state_dict())
             
             
-        #print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
+        print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
         #print("-"*80)
 
         #PATIENCE=5
@@ -266,6 +302,8 @@ def train_model():
         #if val_loss > best_val_loss and 
 
     print("Training completed.")
+    # clear cache
+    biofuse_model.clear_cached_embeddings()
 
     # Print the best validation accuracy and loss 
     print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")       
@@ -281,13 +319,16 @@ def train_model():
 
     # print("Extracting features...")
     # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse_model, is_Test=True)
+    # test_labels_tensor = test_labels_tensor.to("cuda")
         
     # with torch.no_grad():
     #     test_logits = classifier(test_embeddings_tensor)
+    #     test_logits = test_logits.to("cuda")
     #     test_predictions = (torch.sigmoid(test_logits) > 0.5).float()
     #     test_accuracy = (test_predictions.squeeze() == test_labels_tensor).float().mean()
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
+    standalone_eval(train_dataloader, val_dataloader, model_path, model_names, fusion_method, projection_dim)
 
 if __name__ == "__main__":
     train_model()

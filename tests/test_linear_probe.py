@@ -56,7 +56,7 @@ def extract_features(dataloader, biofuse_model):
     # use progress bar
     for image, label in tqdm(dataloader):
         embedding = biofuse_model(image)
-        features.append(embedding.squeeze(0).numpy())
+        features.append(embedding.squeeze(0).cpu().numpy())
         labels.append(label.numpy())
 
     # stack
@@ -104,22 +104,13 @@ def main():
     train_loader, val_loader = load_data()
 
     # Initialize BioFuse model
-    model_names = ["BioMedCLIP"] #, "rad-dino"] #"PubMedCLIP"] #, "rad-dino"]
+    model_names = ["BioMedCLIP", "rad-dino", "PubMedCLIP"] #, "rad-dino"]
     fusion_method = "concat"
     biofuse_model = BioFuseModel(model_names, fusion_method)
 
     # Extract features
     train_features, train_labels = extract_features(train_loader, biofuse_model)
-
-    # get the first ten embeddings
-    e10 = train_features[:10]
-    # for each embedding print the mean of that embedding
-    for e in e10:
-        print(f"Embedding mean: {e.mean()}")
-
-    sys.exit(1)
-
-
+  
     # print("Train features shape: ", train_features.shape)
     # print("Train labels shape: ", train_labels.shape)
     # print(type(train_features))
