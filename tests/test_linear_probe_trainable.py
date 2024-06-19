@@ -19,6 +19,7 @@ import torch.optim as optim
 import torch.nn as nn
 
 FAST_RUN = False
+NUM_EPOCHS = 50
 
 class LogisticRegression2(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -107,12 +108,16 @@ def extract_features(dataloader, biofuse_model):
     return np.array(features), np.array(labels)
     
 
-def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True, is_Test=False):
+def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True, is_Test=False, progress_bar=False):
     embeddings = []
     labels = []    
+
+    data_iter = enumerate(dataloader)
+    if progress_bar:
+        data_iter = enumerate(tqdm(dataloader))
     
     #for image, label in dataloader:
-    for index, (image, label) in enumerate(dataloader):
+    for index, (image, label) in data_iter:
         if is_Test:
             # use forward_test
             embedding = biofuse_model.forward_test(image)
@@ -181,22 +186,22 @@ def train_model():
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=512)
     
     # Show me the trainable layers
-    print_trainable_parameters(biofuse_model)
+    # print_trainable_parameters(biofuse_model)
 
     print("Extracting features...")
     # Extract features from the training set
-    embeddings_np, labels_np = generate_embeddings(train_dataloader, biofuse_model, cache_raw_embeddings=True)
+    embeddings_np, labels_np = generate_embeddings(train_dataloader, biofuse_model, cache_raw_embeddings=True, progress_bar=True)
     
     # Extract features from the validation set
-    val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True, is_training=False)
+    val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True, is_training=False, progress_bar=True)
 
     # Set up the classifier
     input_dim = embeddings_np.shape[1]
     output_dim = 1 # binary classification
 
-    print("Setting up classifier...")
-    print("Input dimension:", input_dim)
-    print("Output dimension:", output_dim)
+    # print("Setting up classifier...")
+    # print("Input dimension:", input_dim)
+    # print("Output dimension:", output_dim)
 
     classifier = LogisticRegression2(input_dim, output_dim)
     #classifier = MLPClassifier(input_dim, hidden_dim=64, output_dim=output_dim)
@@ -205,7 +210,7 @@ def train_model():
     #criterion = nn.CrossEntropyLoss()
     criterion = nn.BCEWithLogitsLoss()
 
-    num_epochs = 100
+    
     best_val_loss = float('inf')
 
     previous_train_embeddings = None  # Store embeddings from the previous epoch
@@ -215,7 +220,8 @@ def train_model():
     best_val_acc = 0.0
     best_loss = float('inf')
 
-    for epoch in tqdm(range(num_epochs)):
+    print("Training model...")
+    for epoch in tqdm(range(NUM_EPOCHS)):
         #print(f"Epoch [{epoch+1}/{num_epochs}]..")
         biofuse_model.train()
         classifier.train()
@@ -223,43 +229,7 @@ def train_model():
 
         # Compute embeddings and labels
         embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse_model)
-        # Print shapes
-        #print("Embeddings shape:", embeddings_tensor.shape)
-
-        # get the first ten embeddings
-        # e0 = embeddings_tensor[:10]
-        # # print the mean of each of the first ten embeddings, use torch.mean
-        # for e in e0:
-        #     print(f"Embedding mean: {e.mean().item()}")
-
-        # Check for changes in training embeddings
-        # if previous_train_embeddings is not None:
-        #     # Calculate the difference between current and previous embeddings
-        #     embedding_diff = embeddings_tensor - previous_train_embeddings
-            
-        #     # Calculate the mean absolute difference or other distance metric
-        #     mean_abs_diff = torch.mean(torch.abs(embedding_diff))
-            
-        #     print(f"Epoch {epoch+1}: Mean Absolute Difference in Training Embeddings: {mean_abs_diff.item():.6f}")
-
-        # Update previous_train_embeddings for the next epoch
-        previous_train_embeddings = embeddings_tensor.clone()
-        
-        # Train classifier on embeddings
-        embeddings_tensor = torch.tensor(embeddings_np, dtype=torch.float32, requires_grad=True)
-        labels_tensor = torch.tensor(labels_np, dtype=torch.long)
-
-        # print("Logits shape:", classifier(embeddings_tensor).shape)
-        # print("Labels shape:", labels_tensor.shape)
-        # print("Labels:", labels_tensor)
-
-        # Get a numpy copy of the embeddings and labels
-        # embeddings_np = embeddings_tensor.clone().detach().numpy()
-        # labels_np = labels_tensor.clone().detach().numpy()
-
-        # # Train a simple linear classifier
-        # classifier_sk, scaler = train_classifier(embeddings_np, labels_np)
-
+       
         # Train classifier
         logits = classifier(embeddings_tensor)
         loss = criterion(logits, labels_tensor.unsqueeze(1).float())
@@ -276,36 +246,11 @@ def train_model():
 
         # Features for the validation set
         val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse_model, is_training=False)
-        # print shape
-        #print("Validation Embeddings shape:", val_embeddings_tensor.shape)
 
-        # # Get a numpy copy of the embeddings and labels
-        # val_embeddings_np = val_embeddings_tensor.clone().detach().numpy()
-        # val_labels_np = val_labels_tensor.clone().detach().numpy()
-
-        # # # Evaluate the model
-        # sk_accuracy = evaluate_model(classifier_sk, scaler.transform(val_embeddings_np), val_labels_np)
-        # print(f"Epoch [{epoch+1}/{num_epochs}], SKLearn Validation Accuracy: {sk_accuracy:.4f}")
-   
-        # Check for changes in validation embeddings
-        # if previous_val_embeddings is not None:
-        #     # Calculate the difference between current and previous embeddings
-        #     embedding_diff = val_embeddings_tensor - previous_val_embeddings
-            
-        #     # Calculate the mean absolute difference or other distance metric
-        #     mean_abs_diff = torch.mean(torch.abs(embedding_diff))
-            
-        #     print(f"Epoch {epoch+1}: Mean Absolute Difference in Validation Embeddings: {mean_abs_diff.item():.6f}")
-
-        # Update previous_val_embeddings for the next epoch
-        previous_val_embeddings = val_embeddings_tensor.clone()
-        
         with torch.no_grad():
-            # val_embeddings_tensor = torch.tensor(val_embeddings_np, dtype=torch.float32, requires_grad=True)
-            # val_labels_tensor = torch.tensor(val_labels_np, dtype=torch.long)
             val_logits = classifier(val_embeddings_tensor)
-
             val_loss = criterion(val_logits, val_labels_tensor.unsqueeze(1).float())
+
             # Calculate Validation Accuracy
             val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
             val_accuracy = (val_predictions.squeeze() == val_labels_tensor).float().mean()        
@@ -314,7 +259,7 @@ def train_model():
                 best_val_acc = val_accuracy
                 best_loss = val_loss
                 best_model = copy.deepcopy(biofuse_model.state_dict())
-                #
+            
             
         #print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
         #print("-"*80)
@@ -323,21 +268,29 @@ def train_model():
         # stop when validation loss increases or stops decreasing after PATIENCE epochs
         #if val_loss > best_val_loss and 
 
-    # Print the best validation accuracy and loss 
-    print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")          
     print("Training completed.")
 
-    # evaluate on the best model
-    biofuse_model.load_state_dict(best_model)
-    biofuse_model.eval()
+    # Print the best validation accuracy and loss 
+    print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")       
 
-    with torch.no_grad():
-        test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse_model, is_Test=True)
-        test_logits = classifier(test_embeddings_tensor)
-        test_predictions = (torch.sigmoid(test_logits) > 0.5).float()
-        test_accuracy = (test_predictions.squeeze() == test_labels_tensor).float().mean()
+    # save the best model
+    print("Saving the best model...")
+    model_path = f"./models/biofuse_{fusion_method}.pt"    
+    torch.save(best_model, model_path)
 
-    print(f"Test Accuracy: {test_accuracy:.4f}")
+    # print("Evaluating on test set...")    
+    # biofuse_model.load_state_dict(best_model)
+    # biofuse_model.eval()
+
+    # print("Extracting features...")
+    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse_model, is_Test=True)
+        
+    # with torch.no_grad():
+    #     test_logits = classifier(test_embeddings_tensor)
+    #     test_predictions = (torch.sigmoid(test_logits) > 0.5).float()
+    #     test_accuracy = (test_predictions.squeeze() == test_labels_tensor).float().mean()
+
+    # print(f"Test Accuracy: {test_accuracy:.4f}")
 
 if __name__ == "__main__":
     train_model()
