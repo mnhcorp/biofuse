@@ -3,6 +3,7 @@ from open_clip import create_model_from_pretrained, get_tokenizer
 from conch.open_clip_custom import create_model_from_pretrained as create_model_from_pretrained_conch
 from torchvision import transforms
 from biofuse.models.config import MODEL_MAP
+import torch
 
 class ModelPreprocessor:
     def __init__(self, model_name, model_info):

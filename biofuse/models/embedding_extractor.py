@@ -83,7 +83,7 @@ class PreTrainedEmbedding(nn.Module):
             elif self.model_name == "rad-dino":
                 outputs = self.model(**input_data).pooler_output
             elif self.model_name == "CheXagent":
-                outputs = self.model.vision_model(input_data).last_hidden_state[:, 0, :]
+                outputs = self.model.vision_model(**(input_data[0])).last_hidden_state[:, 0, :]
                 outputs = outputs.detach().cpu().numpy()
             else:
                 outputs = self.model(input_data).last_hidden_state[:, 0, :]
