@@ -13,13 +13,16 @@ import sys, os, glob
 from biofuse.models.image_dataset import BioFuseImageDataset
 import numpy as np
 import copy
+import medmnist
+from medmnist import INFO
 
 # Trainable layer imports
 import torch.optim as optim
 import torch.nn as nn
 
-FAST_RUN = False
+FAST_RUN = True
 NUM_EPOCHS = 100
+IMG_SIZE = 28
 
 class LogisticRegression2(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -45,45 +48,71 @@ class MLPClassifier(nn.Module):
         return self.mlp(x)
 
 def custom_collate_fn(batch):
+    # Filter out None values
+    batch = [(img, label) for img, label in batch if img is not None]
+    
+    if len(batch) == 0:
+        return [], torch.tensor([])
+
     images, labels = zip(*batch)
     return list(images), torch.tensor(labels)
 
-def load_data():
-    print("Loading data...")
-    train_dataset = BreastMNIST(split='train', size=224, download=True)
-    val_dataset = BreastMNIST(split='val', size=224, download=True)
-    test_dataset = BreastMNIST(split='test', size=224, download=True)
+def load_data(dataset):
+    print(f"Loading data for {dataset}...")
+    
+    info = INFO[dataset]
+    num_classes = len(info['label'])
 
-    # # Use only a subset of the data for faster training
-    # train_dataset = Subset(train_dataset, range(25))
-    # val_dataset = Subset(val_dataset, range(10))
+    DataClass = getattr(medmnist, info['python_class'])
+    
+    train_dataset = DataClass(split='train', download=True, size=IMG_SIZE, root='/data/medmnist')
+    val_dataset = DataClass(split='val', download=True, size=IMG_SIZE, root='/data/medmnist')
+    test_dataset = DataClass(split='test', download=True, size=IMG_SIZE, root='/data/medmnist')
 
+    # force save
+    # train_dataset.save(f'/tmp/{dataset}_train')
+    # val_dataset.save(f'/tmp/{dataset}_val')
+    # test_dataset.save(f'/tmp/{dataset}_test')
+    
     # Save the images to disk if not already done
-    if not os.path.exists('/tmp/breastmnist_train'):
-        train_dataset.save('/tmp/breastmnist_train')
-        val_dataset.save('/tmp/breastmnist_val')
-        test_dataset.save('/tmp/breastmnist_test')
+    if not os.path.exists(f'/tmp/{dataset}_train'):
+        train_dataset.save(f'/tmp/{dataset}_train')
+    
+    if not os.path.exists(f'/tmp/{dataset}_val'):
+        val_dataset.save(f'/tmp/{dataset}_val')
 
-    train_images_path = '/tmp/breastmnist_train/breastmnist_224'
-    val_images_path = '/tmp/breastmnist_val/breastmnist_224'
-    test_images_path = '/tmp/breastmnist_test/breastmnist_224'
-
+    if not os.path.exists(f'/tmp/{dataset}_test'):
+        test_dataset.save(f'/tmp/{dataset}_test')
+    
+    if IMG_SIZE == 28:
+        train_images_path = f'/tmp/{dataset}_train/{dataset}'
+        val_images_path = f'/tmp/{dataset}_val/{dataset}'
+        test_images_path = f'/tmp/{dataset}_test/{dataset}'
+    else:
+        train_images_path = f'/tmp/{dataset}_train/{dataset}_224'
+        val_images_path = f'/tmp/{dataset}_val/{dataset}_224'
+        test_images_path = f'/tmp/{dataset}_test/{dataset}_224'
+    
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
     test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
-    if FAST_RUN:
-        train_image_paths = train_image_paths[:100]
-        val_image_paths = val_image_paths[:25]
-        test_image_paths = test_image_paths[:25]
+    print(f"Number of training images: {len(train_image_paths)}")
+    print(f"Number of validation images: {len(val_image_paths)}")
+    print(f"Number of test images: {len(test_image_paths)}")
     
-    # labels are just _0.png or _1.png etc
+    # if FAST_RUN:
+    #     train_image_paths = train_image_paths[:2500]
+    #     val_image_paths = val_image_paths[:10000]
+    #     test_image_paths = test_image_paths[:2500]
+    
+    # Labels are just _0.png or _1.png etc
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
     val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
     test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
-
-    # Construct the dataste now
+    
+    # Construct the datasets
     train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
     val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
     test_dataset = BioFuseImageDataset(test_image_paths, test_labels)
@@ -92,7 +121,7 @@ def load_data():
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader, test_loader, num_classes
 
 def extract_features(dataloader, biofuse_model):
     print("Extracting features...")
@@ -128,6 +157,8 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
         embeddings.append(embedding)
         labels.append(label)
     
+    print(f"Number of embeddings = ", len(embeddings))
+    print(f"Number of labels = ", len(labels))
     # Embeddings is a list of tensors, stack them and remove the batch dimension
     embeddings_tensor = torch.stack(embeddings).squeeze(1)
     labels_tensor = torch.tensor(labels)        
@@ -177,7 +208,7 @@ def evaluate_model(classifier, features, labels):
     predictions = classifier.predict(features)
     return accuracy_score(labels, predictions)
 
-def standalone_eval(train_dataloader, val_dataloader, model_path, models, fusion_method, projection_dim):    
+def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, models, fusion_method, projection_dim):    
     biofuse = BioFuseModel(models, fusion_method, projection_dim=projection_dim)
 
     # Load the state dictionary
@@ -209,43 +240,69 @@ def standalone_eval(train_dataloader, val_dataloader, model_path, models, fusion
     val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
     print(f"Validation Accuracy: {val_accuracy:.4f}")
 
+    # # on the test set
+    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
+
+    # # convert to numpy
+    # test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
+    # test_labels_np = test_labels_tensor.cpu().detach().numpy()
+
+    # test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+
+    # print(f"Test Accuracy: {test_accuracy:.4f}")
+
         
 # Training the model with validation-informed adjustment
 def train_model():
-    train_dataloader, val_dataloader, test_dataloader = load_data()
+    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data("breastmnist")
+    #sys.exit(0)
 
+    #model_names = ["CheXagent"] # CheXagent needs a bigger GPU :/
     #model_names =  ["rad-dino"] 
-    #model_names =  ["BioMedCLIP"]
+    model_names =  ["BioMedCLIP"]
     #model_names = ["PubMedCLIP"]
-    model_names = ["BioMedCLIP", "PubMedCLIP", "rad-dino"]
+    #model_names = ["BioMedCLIP", "PubMedCLIP", "rad-dino", "CheXagent"]
     #model_names = ["BioMedCLIP", "rad-dino"]
+    #model_names = ["UNI"]
     fusion_method = "mean"
-    projection_dim = 512
+    projection_dim = 0
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=projection_dim)
+    # Switch to half-precision
+    #biofuse_model = biofuse_model.half()
     # Move to GPU
     biofuse_model = biofuse_model.to("cuda")
     
     # Show me the trainable layers
     # print_trainable_parameters(biofuse_model)
 
-    print("Extracting features...")
+    print("Extracting features from the training set...")
     # Extract features from the training set
     embeddings_np, labels_np = generate_embeddings(train_dataloader, biofuse_model, cache_raw_embeddings=True, progress_bar=True)
     
     # Extract features from the validation set
+    print("Extracting features from the validation set...")
     val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True, is_training=False, progress_bar=True)
 
     # Set up the classifier
     input_dim = embeddings_np.shape[1]
     output_dim = 1 # binary classification   
+    if num_classes > 2:
+        output_dim = num_classes    
+
+    print("Output dim: ", output_dim)
 
     classifier = LogisticRegression2(input_dim, output_dim)
+    # Switch to half-precision
+    #classifier = classifier.half()
     classifier = classifier.to("cuda")
     #classifier = MLPClassifier(input_dim, hidden_dim=64, output_dim=output_dim)
 
     optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.005)
-    #criterion = nn.CrossEntropyLoss()
-    criterion = nn.BCEWithLogitsLoss()
+    if num_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
+    
 
     best_model = None
     best_val_acc = 0.0
@@ -263,8 +320,11 @@ def train_model():
         labels_tensor = labels_tensor.to("cuda")
        
         # Train classifier
-        logits = classifier(embeddings_tensor)
-        loss = criterion(logits, labels_tensor.unsqueeze(1).float())
+        logits = classifier(embeddings_tensor)        
+        if num_classes == 2:
+            loss = criterion(logits, labels_tensor.unsqueeze(1).float())
+        else:
+            loss = criterion(logits, labels_tensor)
         loss.backward()            
         optimizer.step()  
 
@@ -282,12 +342,20 @@ def train_model():
 
         with torch.no_grad():
             val_logits = classifier(val_embeddings_tensor)
-            val_loss = criterion(val_logits, val_labels_tensor.unsqueeze(1).float())
+            
+            if num_classes == 2:
+                val_loss = criterion(val_logits, val_labels_tensor.unsqueeze(1).float())
+                val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
+            else:
+                val_loss = criterion(val_logits, val_labels_tensor)
+                val_predictions = torch.argmax(val_logits, dim=1)
 
             # Calculate Validation Accuracy
-            val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
+            #val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
+            # use argmax
+            #val_predictions = torch.argmax(val_logits, dim=1)
             val_accuracy = (val_predictions.squeeze() == val_labels_tensor).float().mean()        
-
+            
             if val_accuracy > best_val_acc:
                 best_val_acc = val_accuracy
                 best_loss = val_loss
@@ -328,7 +396,7 @@ def train_model():
     #     test_accuracy = (test_predictions.squeeze() == test_labels_tensor).float().mean()
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
-    standalone_eval(train_dataloader, val_dataloader, model_path, model_names, fusion_method, projection_dim)
+    standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
 
 if __name__ == "__main__":
     train_model()

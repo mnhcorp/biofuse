@@ -4,7 +4,7 @@ from biofuse.models.embedding_extractor import PreTrainedEmbedding
 from biofuse.models.processor import MultiModelPreprocessor
 
 class BioFuseModel(nn.Module):
-    def __init__(self, models, fusion_method='concat', projection_dim=512, hidden_dim=1024):
+    def __init__(self, models, fusion_method='concat', projection_dim=512):
         super(BioFuseModel, self).__init__()
         self.models = models
         self.fusion_method = fusion_method
@@ -16,11 +16,18 @@ class BioFuseModel(nn.Module):
         for model in models:
             self.embedding_extractors.append(PreTrainedEmbedding(model))
 
-            projection_layer = nn.Sequential(
-                nn.Linear(self.get_model_dim(model), projection_dim),
-                #nn.ReLU(),
-                #nn.LayerNorm(projection_dim)
-            )
+            if projection_dim > 0:
+                projection_layer = nn.Sequential(
+                    nn.Linear(self.get_model_dim(model), projection_dim),
+                    #nn.ReLU(),
+                    #nn.LayerNorm(projection_dim)
+                )
+            else:
+                print("No projection layer")
+                projection_layer = nn.Identity()
+                for param in projection_layer.parameters():
+                    param.requires_grad = False
+            
             self.projection_layers.append(projection_layer)
             
         self.cached_train_embeddings = {model: {} for model in models}
@@ -107,3 +114,8 @@ class BioFuseModel(nn.Module):
     def clear_cached_embeddings(self):
         self.cached_train_embeddings = {model: {} for model in self.models}
         self.cached_val_embeddings = {model: {} for model in self.models}
+
+    def half(self):
+        for projection in self.projection_layers:
+            projection.half()
+        return self

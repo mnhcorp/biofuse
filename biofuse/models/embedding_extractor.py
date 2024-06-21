@@ -41,7 +41,7 @@ class PreTrainedEmbedding(nn.Module):
             self.model = AutoModel.from_pretrained(model_info["model"])
             self.processor = AutoTokenizer.from_pretrained(model_info["model"])
         elif self.model_name == "CheXagent":
-            self.model = AutoModelForCausalLM.from_pretrained(model_info["model"], torch_dtype=torch.float16, trust_remote_code=True).to("cuda")
+            self.model = AutoModelForCausalLM.from_pretrained(model_info["model"], trust_remote_code=True).to("cuda") # torch_dtype=torch.float16, 
             self.processor = AutoProcessor.from_pretrained(model_info["model"], trust_remote_code=True)
         elif self.model_name == "CONCH":
             self.model, _ = create_model_from_pretrained_conch(model_info["model"], model_info["tokenizer"])
@@ -83,8 +83,9 @@ class PreTrainedEmbedding(nn.Module):
             elif self.model_name == "rad-dino":
                 outputs = self.model(**input_data).pooler_output
             elif self.model_name == "CheXagent":
-                outputs = self.model.vision_model(**(input_data[0])).last_hidden_state[:, 0, :]
-                outputs = outputs.detach().cpu().numpy()
+                #input = input_data['pixel_values']
+                outputs = self.model.vision_model(**(input_data)).last_hidden_state[:, 0, :]
+                #outputs = outputs.detach().cpu().numpy()
             else:
                 outputs = self.model(input_data).last_hidden_state[:, 0, :]
 

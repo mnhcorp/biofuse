@@ -18,8 +18,8 @@ def custom_collate_fn(batch):
 
 def load_data():
     print("Loading data...")
-    train_dataset = BreastMNIST(split='train', size=224, download=True)
-    val_dataset = BreastMNIST(split='val', size=224, download=True)
+    train_dataset = BreastMNIST(split='train', download=True)
+    val_dataset = BreastMNIST(split='val', download=True)
 
     # # Use only a subset of the data for faster training
     # train_dataset = Subset(train_dataset, range(25))
@@ -30,8 +30,8 @@ def load_data():
         train_dataset.save('/tmp/breastmnist_train')
         val_dataset.save('/tmp/breastmnist_val')
 
-    train_images_path = '/tmp/breastmnist_train/breastmnist_224'
-    val_images_path = '/tmp/breastmnist_val/breastmnist_224'
+    train_images_path = '/tmp/breastmnist_train/breastmnist'
+    val_images_path = '/tmp/breastmnist_val/breastmnist'
 
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
@@ -56,7 +56,7 @@ def extract_features(dataloader, biofuse_model):
     # use progress bar
     for image, label in tqdm(dataloader):
         embedding = biofuse_model(image)
-        features.append(embedding.squeeze(0).cpu().numpy())
+        features.append(embedding.squeeze(0).detach().cpu().numpy())
         labels.append(label.numpy())
 
     # stack
@@ -104,9 +104,10 @@ def main():
     train_loader, val_loader = load_data()
 
     # Initialize BioFuse model
-    model_names = ["BioMedCLIP", "rad-dino", "PubMedCLIP"] #, "rad-dino"]
+    model_names = ["BioMedCLIP"] #, "rad-dino", "PubMedCLIP"] #, "rad-dino"]
     fusion_method = "concat"
     biofuse_model = BioFuseModel(model_names, fusion_method)
+    biofuse_model.to("cuda")
 
     # Extract features
     train_features, train_labels = extract_features(train_loader, biofuse_model)
