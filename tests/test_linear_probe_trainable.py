@@ -110,9 +110,9 @@ def load_data(dataset, img_size, fast_run):
         val_images_path = f'/tmp/{dataset}_val/{dataset}'
         test_images_path = f'/tmp/{dataset}_test/{dataset}'
     else:
-        train_images_path = f'/tmp/{dataset}_train/{dataset}_f{img_size}'
-        val_images_path = f'/tmp/{dataset}_val/{dataset}_f{img_size}'
-        test_images_path = f'/tmp/{dataset}_test/{dataset}_f{img_size}'
+        train_images_path = f'/tmp/{dataset}_train/{dataset}_{img_size}'
+        val_images_path = f'/tmp/{dataset}_val/{dataset}_{img_size}'
+        test_images_path = f'/tmp/{dataset}_test/{dataset}_{img_size}'
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
@@ -289,6 +289,10 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     #model_names = ["BioMedCLIP", "rad-dino"]
     #model_names = ["UNI"]
     print("Model names: ", model_names)
+    print("Fusion method: ", fusion_method)
+    print("Projection dim: ", projection_dim)
+    print("Number of epochs: ", num_epochs)
+    print("img_size: ", img_size)
     fusion_method = fusion_method
     projection_dim = projection_dim
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=projection_dim)
