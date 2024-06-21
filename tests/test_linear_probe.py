@@ -11,6 +11,32 @@ from medmnist import BreastMNIST
 from tqdm import tqdm
 import sys, os, glob
 from biofuse.models.image_dataset import BioFuseImageDataset
+import random
+import numpy as np
+
+IMG_SIZE = 28
+
+def set_seed(seed: int = 42) -> None:
+    # Set seed that controls randomness related to PyTorch operations
+    torch.manual_seed(seed)
+
+    # Seed for randomness in CUDA operations
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)    # For multi-GPU
+
+    # Set NumPy seed
+    np.random.seed(seed)
+
+    # Seed for random module
+    random.seed(seed)
+
+    # Control non-deterministic behavior for convolutional operations
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Set the Python hash seed
+    os.environ['PYTHONHASHSEED'] = str(seed)
 
 def custom_collate_fn(batch):
     images, labels = zip(*batch)
@@ -18,8 +44,8 @@ def custom_collate_fn(batch):
 
 def load_data():
     print("Loading data...")
-    train_dataset = BreastMNIST(split='train', download=True)
-    val_dataset = BreastMNIST(split='val', download=True)
+    train_dataset = BreastMNIST(split='train', download=True, size=IMG_SIZE, root='/data/medmnist')
+    val_dataset = BreastMNIST(split='val', download=True, size=IMG_SIZE, root='/data/medmnist')
 
     # # Use only a subset of the data for faster training
     # train_dataset = Subset(train_dataset, range(25))
@@ -30,8 +56,16 @@ def load_data():
         train_dataset.save('/tmp/breastmnist_train')
         val_dataset.save('/tmp/breastmnist_val')
 
-    train_images_path = '/tmp/breastmnist_train/breastmnist'
-    val_images_path = '/tmp/breastmnist_val/breastmnist'
+    if IMG_SIZE != 28:
+        train_images_path = '/tmp/breastmnist_train/breastmnist_{IMG_SIZE}'
+        val_images_path = '/tmp/breastmnist_val/breastmnist_{IMG_SIZE}'
+    else:
+        train_images_path = '/tmp/breastmnist_train/breastmnist'
+        val_images_path = '/tmp/breastmnist_val/breastmnist'
+
+    # print lens
+    print("Train dataset size: ", len(train_dataset))
+    print("Val dataset size: ", len(val_dataset))
 
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
@@ -100,6 +134,9 @@ def evaluate_model(classifier, features, labels):
     return accuracy_score(labels, predictions)
         
 def main():
+    # set seed
+    set_seed(42)
+
     # Load data
     train_loader, val_loader = load_data()
 
@@ -111,17 +148,6 @@ def main():
 
     # Extract features
     train_features, train_labels = extract_features(train_loader, biofuse_model)
-  
-    # print("Train features shape: ", train_features.shape)
-    # print("Train labels shape: ", train_labels.shape)
-    # print(type(train_features))
-    # print(len(train_features))
-    # print(type(train_features[0]))
-    # print(train_features[0].shape)
-    # print(type(train_labels))
-    # print(len(train_labels))
-    # #print(train_labels[0].shape)
-    # print(train_labels[0])
 
     # Train a classifier
     classifier, scaler = train_classifier(train_features, train_labels)

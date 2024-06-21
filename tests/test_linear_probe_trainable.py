@@ -15,6 +15,7 @@ import numpy as np
 import copy
 import medmnist
 from medmnist import INFO
+import random
 
 # Trainable layer imports
 import torch.optim as optim
@@ -22,7 +23,29 @@ import torch.nn as nn
 
 FAST_RUN = True
 NUM_EPOCHS = 100
-IMG_SIZE = 28
+IMG_SIZE = 224
+
+def set_seed(seed: int = 42) -> None:
+    # Set seed that controls randomness related to PyTorch operations
+    torch.manual_seed(seed)
+
+    # Seed for randomness in CUDA operations
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)    # For multi-GPU
+
+    # Set NumPy seed
+    np.random.seed(seed)
+
+    # Seed for random module
+    random.seed(seed)
+
+    # Control non-deterministic behavior for convolutional operations
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Set the Python hash seed
+    os.environ['PYTHONHASHSEED'] = str(seed)
 
 class LogisticRegression2(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -157,8 +180,6 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
         embeddings.append(embedding)
         labels.append(label)
     
-    print(f"Number of embeddings = ", len(embeddings))
-    print(f"Number of labels = ", len(labels))
     # Embeddings is a list of tensors, stack them and remove the batch dimension
     embeddings_tensor = torch.stack(embeddings).squeeze(1)
     labels_tensor = torch.tensor(labels)        
@@ -254,6 +275,8 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_pat
         
 # Training the model with validation-informed adjustment
 def train_model():
+    set_seed(42)
+
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data("breastmnist")
     #sys.exit(0)
 
