@@ -16,14 +16,12 @@ import copy
 import medmnist
 from medmnist import INFO
 import random
+import argparse
 
 # Trainable layer imports
 import torch.optim as optim
 import torch.nn as nn
 
-FAST_RUN = True
-NUM_EPOCHS = 100
-IMG_SIZE = 224
 
 def set_seed(seed: int = 42) -> None:
     # Set seed that controls randomness related to PyTorch operations
@@ -80,7 +78,7 @@ def custom_collate_fn(batch):
     images, labels = zip(*batch)
     return list(images), torch.tensor(labels)
 
-def load_data(dataset):
+def load_data(dataset, img_size, fast_run):
     print(f"Loading data for {dataset}...")
     
     info = INFO[dataset]
@@ -88,9 +86,9 @@ def load_data(dataset):
 
     DataClass = getattr(medmnist, info['python_class'])
     
-    train_dataset = DataClass(split='train', download=True, size=IMG_SIZE, root='/data/medmnist')
-    val_dataset = DataClass(split='val', download=True, size=IMG_SIZE, root='/data/medmnist')
-    test_dataset = DataClass(split='test', download=True, size=IMG_SIZE, root='/data/medmnist')
+    train_dataset = DataClass(split='train', download=True, size=img_size, root='/data/medmnist')
+    val_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')
+    test_dataset = DataClass(split='test', download=True, size=img_size, root='/data/medmnist')
 
     # force save
     # train_dataset.save(f'/tmp/{dataset}_train')
@@ -107,14 +105,14 @@ def load_data(dataset):
     if not os.path.exists(f'/tmp/{dataset}_test'):
         test_dataset.save(f'/tmp/{dataset}_test')
     
-    if IMG_SIZE == 28:
+    if img_size == 28:
         train_images_path = f'/tmp/{dataset}_train/{dataset}'
         val_images_path = f'/tmp/{dataset}_val/{dataset}'
         test_images_path = f'/tmp/{dataset}_test/{dataset}'
     else:
-        train_images_path = f'/tmp/{dataset}_train/{dataset}_224'
-        val_images_path = f'/tmp/{dataset}_val/{dataset}_224'
-        test_images_path = f'/tmp/{dataset}_test/{dataset}_224'
+        train_images_path = f'/tmp/{dataset}_train/{dataset}_f{img_size}'
+        val_images_path = f'/tmp/{dataset}_val/{dataset}_f{img_size}'
+        test_images_path = f'/tmp/{dataset}_test/{dataset}_f{img_size}'
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
@@ -261,34 +259,38 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_pat
     val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
     print(f"Validation Accuracy: {val_accuracy:.4f}")
 
-    # # on the test set
-    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
+    # on the test set
+    test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
 
-    # # convert to numpy
-    # test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
-    # test_labels_np = test_labels_tensor.cpu().detach().numpy()
+    # convert to numpy
+    test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
+    test_labels_np = test_labels_tensor.cpu().detach().numpy()
 
-    # test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+    # Scale features
+    test_embeddings_np = scaler.transform(test_embeddings_np)
 
-    # print(f"Test Accuracy: {test_accuracy:.4f}")
+    test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+
+    print(f"Test Accuracy: {test_accuracy:.4f}")
 
         
 # Training the model with validation-informed adjustment
-def train_model():
+def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusion_method, fast_run):
     set_seed(42)
 
-    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data("breastmnist")
+    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, fast_run)
     #sys.exit(0)
 
     #model_names = ["CheXagent"] # CheXagent needs a bigger GPU :/
     #model_names =  ["rad-dino"] 
-    model_names =  ["BioMedCLIP"]
+    #model_names =  ["BioMedCLIP"]
     #model_names = ["PubMedCLIP"]
     #model_names = ["BioMedCLIP", "PubMedCLIP", "rad-dino", "CheXagent"]
     #model_names = ["BioMedCLIP", "rad-dino"]
     #model_names = ["UNI"]
-    fusion_method = "mean"
-    projection_dim = 0
+    print("Model names: ", model_names)
+    fusion_method = fusion_method
+    projection_dim = projection_dim
     biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=projection_dim)
     # Switch to half-precision
     #biofuse_model = biofuse_model.half()
@@ -332,7 +334,7 @@ def train_model():
     best_loss = float('inf')
 
     print("Training model...")
-    for epoch in tqdm(range(NUM_EPOCHS)):
+    for epoch in tqdm(range(num_epochs)):
         #print(f"Epoch [{epoch+1}/{num_epochs}]..")
         biofuse_model.train()
         classifier.train()
@@ -385,7 +387,7 @@ def train_model():
                 best_model = copy.deepcopy(biofuse_model.state_dict())
             
             
-        print(f'Epoch [{epoch+1}/{NUM_EPOCHS}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
+        print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
         #print("-"*80)
 
         #PATIENCE=5
@@ -404,22 +406,27 @@ def train_model():
     model_path = f"./models/biofuse_{fusion_method}.pt"    
     torch.save(best_model, model_path)
 
-    # print("Evaluating on test set...")    
-    # biofuse_model.load_state_dict(best_model)
-    # biofuse_model.eval()
-
-    # print("Extracting features...")
-    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse_model, is_Test=True)
-    # test_labels_tensor = test_labels_tensor.to("cuda")
-        
-    # with torch.no_grad():
-    #     test_logits = classifier(test_embeddings_tensor)
-    #     test_logits = test_logits.to("cuda")
-    #     test_predictions = (torch.sigmoid(test_logits) > 0.5).float()
-    #     test_accuracy = (test_predictions.squeeze() == test_labels_tensor).float().mean()
-
     # print(f"Test Accuracy: {test_accuracy:.4f}")
     standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
 
+def main():
+    parser = argparse.ArgumentParser(description='BioFuse v0.1')
+    parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
+    parser.add_argument('--img_size', type=int, default=28, help='Image size')
+    parser.add_argument('--projection_dim', type=int, default=512, help='Projection dimension')
+    parser.add_argument('--fusion_method', type=str, default='concat', help='Fusion method')
+    parser.add_argument('--fast_run', type=bool, default=False, help='Fast run')
+    parser.add_argument('--dataset', type=str, default='breastmnist', help='Dataset')
+    parser.add_argument('--models', type=str, default='BioMedCLIP', help='List of pre-trained models, delimited by comma')
+    args = parser.parse_args()
+
+    train_model(args.dataset, 
+                args.models.split(','), 
+                args.num_epochs, 
+                args.img_size, 
+                args.projection_dim, 
+                args.fusion_method, 
+                args.fast_run)
+    
 if __name__ == "__main__":
-    train_model()
+    main()

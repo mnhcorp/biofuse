@@ -46,6 +46,7 @@ def load_data():
     print("Loading data...")
     train_dataset = BreastMNIST(split='train', download=True, size=IMG_SIZE, root='/data/medmnist')
     val_dataset = BreastMNIST(split='val', download=True, size=IMG_SIZE, root='/data/medmnist')
+    test_dataset = BreastMNIST(split='test', download=True, size=IMG_SIZE, root='/data/medmnist')
 
     # # Use only a subset of the data for faster training
     # train_dataset = Subset(train_dataset, range(25))
@@ -55,33 +56,42 @@ def load_data():
     if not os.path.exists('/tmp/breastmnist_train'):
         train_dataset.save('/tmp/breastmnist_train')
         val_dataset.save('/tmp/breastmnist_val')
+        test_dataset.save('/tmp/breastmnist_test')
 
     if IMG_SIZE != 28:
         train_images_path = '/tmp/breastmnist_train/breastmnist_{IMG_SIZE}'
         val_images_path = '/tmp/breastmnist_val/breastmnist_{IMG_SIZE}'
+        test_images_path = '/tmp/breastmnist_test/breastmnist_{IMG_SIZE}'
     else:
         train_images_path = '/tmp/breastmnist_train/breastmnist'
         val_images_path = '/tmp/breastmnist_val/breastmnist'
+        test_images_path = '/tmp/breastmnist_test/breastmnist'
 
     # print lens
     print("Train dataset size: ", len(train_dataset))
     print("Val dataset size: ", len(val_dataset))
+    print("Test dataset size: ", len(test_dataset))
 
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
+    test_image_paths = glob.glob(f'{test_images_path}/*.png')
+
     # labels are just _0.png or _1.png etc
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
     val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
+    test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
 
     # Construct the dataste now
     train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
     val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
+    test_dataset = BioFuseImageDataset(test_image_paths, test_labels)
 
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     
-    return train_loader, val_loader
+    return train_loader, val_loader, test_loader
 
 def extract_features(dataloader, biofuse_model):
     print("Extracting features...")
@@ -138,7 +148,7 @@ def main():
     set_seed(42)
 
     # Load data
-    train_loader, val_loader = load_data()
+    train_loader, val_loader, test_loader = load_data()
 
     # Initialize BioFuse model
     model_names = ["BioMedCLIP"] #, "rad-dino", "PubMedCLIP"] #, "rad-dino"]
@@ -157,7 +167,14 @@ def main():
 
     # Evaluate the model
     accuracy = evaluate_model(classifier, scaler.transform(val_features), val_labels)
-    print("Accuracy: ", accuracy)
+    print("Val Accuracy: ", accuracy)
+
+    # get test features
+    test_features, test_labels = extract_features(test_loader, biofuse_model)
+
+    # Evaluate the model
+    accuracy = evaluate_model(classifier, scaler.transform(test_features), test_labels)
+    print("Test Accuracy: ", accuracy)
 
 if __name__ == "__main__":
     main()
