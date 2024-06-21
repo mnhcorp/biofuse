@@ -9,7 +9,7 @@ from sklearn.linear_model import LogisticRegression
 from medmnist import BreastMNIST
 # progressbar
 from tqdm import tqdm
-import sys, os, glob
+import sys, os, glob, csv
 from biofuse.models.image_dataset import BioFuseImageDataset
 import numpy as np
 import copy
@@ -272,6 +272,7 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_pat
     test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
 
     print(f"Test Accuracy: {test_accuracy:.4f}")
+    return val_accuracy, test_accuracy
 
         
 # Training the model with validation-informed adjustment
@@ -336,6 +337,8 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     best_model = None
     best_val_acc = 0.0
     best_loss = float('inf')
+    patience = 6
+    patience_counter = 0
 
     print("Training model...")
     for epoch in tqdm(range(num_epochs)):
@@ -389,14 +392,17 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
                 best_val_acc = val_accuracy
                 best_loss = val_loss
                 best_model = copy.deepcopy(biofuse_model.state_dict())
+                patience_counter = 0
+            else:
+                patience_counter += 1
             
             
         print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
         #print("-"*80)
 
-        #PATIENCE=5
-        # stop when validation loss increases or stops decreasing after PATIENCE epochs
-        #if val_loss > best_val_loss and 
+        if patience_counter >= patience:
+            print(f"Early stopping at epoch {epoch+1}")
+            break        
 
     print("Training completed.")
     # clear cache
@@ -411,7 +417,24 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     torch.save(best_model, model_path)
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
-    standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
+    val_accuracy, test_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
+
+    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, test_accuracy)
+
+
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, test_accuracy):
+    file_path = f"results_{dataset}.csv"
+    file_exists = os.path.isfile(file_path)
+
+    with open(file_path, mode='a', newline='') as file:
+        writer = csv.writer(file)
+
+        # Write header if the file does not exist
+        if not file_exists:
+            writer.writerow(["Dataset", "Image Size", "Pre-trained Models", "Fusion Method", "Projection Layer Dim", "Epochs", "Val Accuracy", "Test Accuracy"])
+
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{test_accuracy:.3f}'])
+
 
 def main():
     parser = argparse.ArgumentParser(description='BioFuse v0.1')
