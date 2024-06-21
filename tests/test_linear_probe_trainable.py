@@ -22,6 +22,7 @@ import argparse
 import torch.optim as optim
 import torch.nn as nn
 
+PATIENCE = 8
 
 def set_seed(seed: int = 42) -> None:
     # Set seed that controls randomness related to PyTorch operations
@@ -259,20 +260,22 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_pat
     val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
     print(f"Validation Accuracy: {val_accuracy:.4f}")
 
-    # on the test set
-    test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
+    return val_accuracy
 
-    # convert to numpy
-    test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
-    test_labels_np = test_labels_tensor.cpu().detach().numpy()
+    # # on the test set
+    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
 
-    # Scale features
-    test_embeddings_np = scaler.transform(test_embeddings_np)
+    # # convert to numpy
+    # test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
+    # test_labels_np = test_labels_tensor.cpu().detach().numpy()
 
-    test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+    # # Scale features
+    # test_embeddings_np = scaler.transform(test_embeddings_np)
 
-    print(f"Test Accuracy: {test_accuracy:.4f}")
-    return val_accuracy, test_accuracy
+    # test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+
+    # print(f"Test Accuracy: {test_accuracy:.4f}")
+    # return val_accuracy, test_accuracy
 
         
 # Training the model with validation-informed adjustment
@@ -337,7 +340,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     best_model = None
     best_val_acc = 0.0
     best_loss = float('inf')
-    patience = 6
+    patience = PATIENCE
     patience_counter = 0
 
     print("Training model...")
@@ -417,23 +420,18 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     torch.save(best_model, model_path)
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
-    val_accuracy, test_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
+    val_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
 
-    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, test_accuracy)
+    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, test_accuracy):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy):
     file_path = f"results_{dataset}.csv"
     file_exists = os.path.isfile(file_path)
 
     with open(file_path, mode='a', newline='') as file:
         writer = csv.writer(file)
-
-        # Write header if the file does not exist
-        if not file_exists:
-            writer.writerow(["Dataset", "Image Size", "Pre-trained Models", "Fusion Method", "Projection Layer Dim", "Epochs", "Val Accuracy", "Test Accuracy"])
-
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{test_accuracy:.3f}'])
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}'])
 
 
 def main():

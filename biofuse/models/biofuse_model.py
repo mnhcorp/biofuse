@@ -74,6 +74,10 @@ class BioFuseModel(nn.Module):
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
         elif self.fusion_method == 'max':
             fused_embedding = torch.max(torch.stack(embeddings), dim=0)[0]
+        elif self.fusion_method == 'sum':
+            fused_embedding = torch.sum(torch.stack(embeddings), dim=0)
+        elif self.fusion_method == 'mul':
+            fused_embedding = torch.prod(torch.stack(embeddings), dim=0)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
@@ -94,6 +98,10 @@ class BioFuseModel(nn.Module):
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
         elif self.fusion_method == 'max':
             fused_embedding = torch.max(torch.stack(embeddings), dim=0)[0]
+        elif self.fusion_method == 'sum':
+            fused_embedding = torch.sum(torch.stack(embeddings), dim=0)
+        elif self.fusion_method == 'mul':
+            fused_embedding = torch.prod(torch.stack(embeddings), dim=0)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 

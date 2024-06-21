@@ -4,7 +4,7 @@
 datasets=("breastmnist")
 image_sizes=(28 224)
 models=("BioMedCLIP" "BioMedCLIP,rad-dino" "BioMedCLIP,rad-dino,PubMedCLIP")
-fusion_methods=("mean" "concat" "max")
+fusion_methods=("mean" "concat" "max" "sum" "mul")
 projection_dims=(0 128 256 512 768 1024)
 epochs=100
 
@@ -21,7 +21,7 @@ run_experiment() {
 }
 
 # Write the CSV header
-echo "Dataset,Image Size,Pre-trained Models,Fusion Method,Projection Layer Dim,Epochs,Val Accuracy,Test Accuracy" > results.csv
+echo "Dataset,Image Size,Pre-trained Models,Fusion Method,Projection Layer Dim,Epochs,Val Accuracy" > results.csv
 
 # Iterate through all combinations
 for dataset in "${datasets[@]}"; do
