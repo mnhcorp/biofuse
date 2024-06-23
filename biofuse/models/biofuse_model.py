@@ -33,6 +33,10 @@ class BioFuseModel(nn.Module):
         self.cached_train_embeddings = {model: {} for model in models}
         self.cached_val_embeddings = {model: {} for model in models}
 
+        # Initialize learnable weights for 'wsum' fusion method
+        if self.fusion_method == 'wsum':
+            self.fusion_weights = nn.Parameter(torch.ones(len(models)) / len(models))
+
     def get_model_dim(self, model_name):
         model_dims = {
             "BioMedCLIP": 512,
@@ -78,6 +82,9 @@ class BioFuseModel(nn.Module):
             fused_embedding = torch.sum(torch.stack(embeddings), dim=0)
         elif self.fusion_method == 'mul':
             fused_embedding = torch.prod(torch.stack(embeddings), dim=0)
+        elif self.fusion_method == 'wsum':
+            stacked_embeddings = torch.stack(embeddings)
+            fused_embedding = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
@@ -102,6 +109,9 @@ class BioFuseModel(nn.Module):
             fused_embedding = torch.sum(torch.stack(embeddings), dim=0)
         elif self.fusion_method == 'mul':
             fused_embedding = torch.prod(torch.stack(embeddings), dim=0)
+        elif self.fusion_method == 'wsum':
+            stacked_embeddings = torch.stack(embeddings)
+            fused_embedding = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
