@@ -33,9 +33,11 @@ class BioFuseModel(nn.Module):
         self.cached_train_embeddings = {model: {} for model in models}
         self.cached_val_embeddings = {model: {} for model in models}
 
-        # Initialize learnable weights for 'wsum' and 'wmean' fusion methods
+        # Initialize learnable weights for 'wsum', 'wmean', and 'ifusion' fusion methods
         if self.fusion_method in ['wsum', 'wmean']:
             self.fusion_weights = nn.Parameter(torch.ones(len(models)) / len(models))
+        elif self.fusion_method == 'ifusion':
+            self.chunk_size = nn.Parameter(torch.tensor(64.0))  # Initialize chunk size to 64
 
     def get_model_dim(self, model_name):
         model_dims = {
@@ -89,6 +91,26 @@ class BioFuseModel(nn.Module):
             stacked_embeddings = torch.stack(embeddings)
             weighted_sum = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
             fused_embedding = weighted_sum / torch.sum(self.fusion_weights)
+        elif self.fusion_method == 'ifusion':
+            if len(embeddings) != 2:
+                raise ValueError("ifusion method requires exactly 2 embeddings")
+            
+            chunk_size = int(self.chunk_size.item())
+            embedding1, embedding2 = embeddings
+            
+            # Ensure embeddings are of the same size
+            if embedding1.size() != embedding2.size():
+                raise ValueError("Embeddings must be of the same size for ifusion")
+            
+            # Split embeddings into chunks
+            chunks1 = torch.split(embedding1, chunk_size, dim=-1)
+            chunks2 = torch.split(embedding2, chunk_size, dim=-1)
+            
+            # Interleave chunks
+            interleaved_chunks = [chunk for pair in zip(chunks1, chunks2) for chunk in pair]
+            
+            # Concatenate interleaved chunks
+            fused_embedding = torch.cat(interleaved_chunks, dim=-1)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
@@ -120,6 +142,26 @@ class BioFuseModel(nn.Module):
             stacked_embeddings = torch.stack(embeddings)
             weighted_sum = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
             fused_embedding = weighted_sum / torch.sum(self.fusion_weights)
+        elif self.fusion_method == 'ifusion':
+            if len(embeddings) != 2:
+                raise ValueError("ifusion method requires exactly 2 embeddings")
+            
+            chunk_size = int(self.chunk_size.item())
+            embedding1, embedding2 = embeddings
+            
+            # Ensure embeddings are of the same size
+            if embedding1.size() != embedding2.size():
+                raise ValueError("Embeddings must be of the same size for ifusion")
+            
+            # Split embeddings into chunks
+            chunks1 = torch.split(embedding1, chunk_size, dim=-1)
+            chunks2 = torch.split(embedding2, chunk_size, dim=-1)
+            
+            # Interleave chunks
+            interleaved_chunks = [chunk for pair in zip(chunks1, chunks2) for chunk in pair]
+            
+            # Concatenate interleaved chunks
+            fused_embedding = torch.cat(interleaved_chunks, dim=-1)
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
