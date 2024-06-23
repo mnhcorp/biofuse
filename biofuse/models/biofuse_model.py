@@ -38,6 +38,7 @@ class BioFuseModel(nn.Module):
             self.fusion_weights = nn.Parameter(torch.ones(len(models)) / len(models))
         elif self.fusion_method == 'ifusion':
             self.chunk_size = nn.Parameter(torch.tensor(64.0))  # Initialize chunk size to 64
+            self.num_models = len(models)
 
     def get_model_dim(self, model_name):
         model_dims = {
@@ -92,22 +93,19 @@ class BioFuseModel(nn.Module):
             weighted_sum = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
             fused_embedding = weighted_sum / torch.sum(self.fusion_weights)
         elif self.fusion_method == 'ifusion':
-            if len(embeddings) != 2:
-                raise ValueError("ifusion method requires exactly 2 embeddings")
-            
             chunk_size = int(self.chunk_size.item())
-            embedding1, embedding2 = embeddings
             
-            # Ensure embeddings are of the same size
-            if embedding1.size() != embedding2.size():
-                raise ValueError("Embeddings must be of the same size for ifusion")
+            # Ensure all embeddings are of the same size
+            if not all(embedding.size() == embeddings[0].size() for embedding in embeddings):
+                raise ValueError("All embeddings must be of the same size for ifusion")
             
-            # Split embeddings into chunks
-            chunks1 = torch.split(embedding1, chunk_size, dim=-1)
-            chunks2 = torch.split(embedding2, chunk_size, dim=-1)
+            # Split all embeddings into chunks
+            all_chunks = [torch.split(embedding, chunk_size, dim=-1) for embedding in embeddings]
             
-            # Interleave chunks
-            interleaved_chunks = [chunk for pair in zip(chunks1, chunks2) for chunk in pair]
+            # Interleave chunks from all embeddings
+            interleaved_chunks = []
+            for chunks in zip(*all_chunks):
+                interleaved_chunks.extend(chunks)
             
             # Concatenate interleaved chunks
             fused_embedding = torch.cat(interleaved_chunks, dim=-1)
@@ -143,22 +141,19 @@ class BioFuseModel(nn.Module):
             weighted_sum = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
             fused_embedding = weighted_sum / torch.sum(self.fusion_weights)
         elif self.fusion_method == 'ifusion':
-            if len(embeddings) != 2:
-                raise ValueError("ifusion method requires exactly 2 embeddings")
-            
             chunk_size = int(self.chunk_size.item())
-            embedding1, embedding2 = embeddings
             
-            # Ensure embeddings are of the same size
-            if embedding1.size() != embedding2.size():
-                raise ValueError("Embeddings must be of the same size for ifusion")
+            # Ensure all embeddings are of the same size
+            if not all(embedding.size() == embeddings[0].size() for embedding in embeddings):
+                raise ValueError("All embeddings must be of the same size for ifusion")
             
-            # Split embeddings into chunks
-            chunks1 = torch.split(embedding1, chunk_size, dim=-1)
-            chunks2 = torch.split(embedding2, chunk_size, dim=-1)
+            # Split all embeddings into chunks
+            all_chunks = [torch.split(embedding, chunk_size, dim=-1) for embedding in embeddings]
             
-            # Interleave chunks
-            interleaved_chunks = [chunk for pair in zip(chunks1, chunks2) for chunk in pair]
+            # Interleave chunks from all embeddings
+            interleaved_chunks = []
+            for chunks in zip(*all_chunks):
+                interleaved_chunks.extend(chunks)
             
             # Concatenate interleaved chunks
             fused_embedding = torch.cat(interleaved_chunks, dim=-1)
