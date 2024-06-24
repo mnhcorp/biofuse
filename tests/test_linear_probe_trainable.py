@@ -94,15 +94,15 @@ def load_data(dataset, img_size, fast_run):
     if not os.path.exists(f'/tmp/{dataset}_train'):
         train_dataset.save(f'/tmp/{dataset}_train')
     
-    if not os.path.exists(f'/tmp/{dataset}_test'):
-        test_dataset.save(f'/tmp/{dataset}_test')
+    if not os.path.exists(f'/tmp/{dataset}_val'):
+        test_dataset.save(f'/tmp/{dataset}_val')
     
     if img_size == 28:
         train_images_path = f'/tmp/{dataset}_train/{dataset}'
-        test_images_path = f'/tmp/{dataset}_test/{dataset}'
+        test_images_path = f'/tmp/{dataset}_val/{dataset}'
     else:
         train_images_path = f'/tmp/{dataset}_train/{dataset}_{img_size}'
-        test_images_path = f'/tmp/{dataset}_test/{dataset}_{img_size}'
+        test_images_path = f'/tmp/{dataset}_val/{dataset}_{img_size}'
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
@@ -120,7 +120,7 @@ def load_data(dataset, img_size, fast_run):
     val_size = len(test_dataset)
 
     # Split the training set into train and validation
-    train_size = len(full_train_dataset) - val_size
+    train_size = len(full_train_dataset) - val_size  
     train_dataset, val_dataset = torch.utils.data.random_split(
         full_train_dataset, 
         [train_size, val_size],
@@ -251,23 +251,21 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_pat
     # Evaluate the model
     val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
     print(f"Validation Accuracy: {val_accuracy:.4f}")
+    
+    # on the test set
+    test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
 
-    return val_accuracy
+    # convert to numpy
+    test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
+    test_labels_np = test_labels_tensor.cpu().detach().numpy()
 
-    # # on the test set
-    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
+    # Scale features
+    test_embeddings_np = scaler.transform(test_embeddings_np)
 
-    # # convert to numpy
-    # test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
-    # test_labels_np = test_labels_tensor.cpu().detach().numpy()
+    test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
 
-    # # Scale features
-    # test_embeddings_np = scaler.transform(test_embeddings_np)
-
-    # test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
-
-    # print(f"Test Accuracy: {test_accuracy:.4f}")
-    # return val_accuracy, test_accuracy
+    print(f"Test Accuracy: {test_accuracy:.4f}")
+    return val_accuracy, test_accuracy
 
         
 # Training the model with validation-informed adjustment
@@ -322,7 +320,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     classifier = classifier.to("cuda")
     #classifier = MLPClassifier(input_dim, hidden_dim=64, output_dim=output_dim)
 
-    optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.005)
+    optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.004)
     if num_classes == 2:
         criterion = nn.BCEWithLogitsLoss()
     else:
@@ -412,18 +410,18 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     torch.save(best_model, model_path)
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
-    val_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
+    val_accuracy, test_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
 
-    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy)
+    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, test_accuracy)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, test_accuracy):
     file_path = f"results_{dataset}.csv"
     file_exists = os.path.isfile(file_path)
 
     with open(file_path, mode='a', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}'])
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{test_accuracy:.3f}'])
 
 
 def main():

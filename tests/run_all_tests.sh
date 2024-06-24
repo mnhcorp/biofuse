@@ -2,9 +2,9 @@
 
 # Define the table of configurations
 datasets=("breastmnist")
-image_sizes=(28 224)
-models=("BioMedCLIP" "BioMedCLIP,rad-dino" "BioMedCLIP,rad-dino,PubMedCLIP")
-fusion_methods=("mean" "concat" "max" "sum" "mul")
+image_sizes=(224)
+models=("BioMedCLIP") # "BioMedCLIP,rad-dino" "BioMedCLIP,rad-dino,PubMedCLIP")
+fusion_methods=("mean" "concat" "max" "sum" "mul" "wsum" "wmean" "ifusion")
 projection_dims=(0 128 256 512 768 1024)
 epochs=100
 
