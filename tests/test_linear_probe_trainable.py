@@ -88,41 +88,54 @@ def load_data(dataset, img_size, fast_run):
     DataClass = getattr(medmnist, info['python_class'])
     
     train_dataset = DataClass(split='train', download=True, size=img_size, root='/data/medmnist')
-    val_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')
+    test_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')
     
     # Save the images to disk if not already done
     if not os.path.exists(f'/tmp/{dataset}_train'):
         train_dataset.save(f'/tmp/{dataset}_train')
     
-    if not os.path.exists(f'/tmp/{dataset}_val'):
-        val_dataset.save(f'/tmp/{dataset}_val')
+    if not os.path.exists(f'/tmp/{dataset}_test'):
+        test_dataset.save(f'/tmp/{dataset}_test')
     
     if img_size == 28:
         train_images_path = f'/tmp/{dataset}_train/{dataset}'
-        val_images_path = f'/tmp/{dataset}_val/{dataset}'
+        test_images_path = f'/tmp/{dataset}_test/{dataset}'
     else:
         train_images_path = f'/tmp/{dataset}_train/{dataset}_{img_size}'
-        val_images_path = f'/tmp/{dataset}_val/{dataset}_{img_size}'
+        test_images_path = f'/tmp/{dataset}_test/{dataset}_{img_size}'
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
-    val_image_paths = glob.glob(f'{val_images_path}/*.png')
+    test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
-    print(f"Number of training images: {len(train_image_paths)}")
-    print(f"Number of validation images: {len(val_image_paths)}")
-    
     # Labels are just _0.png or _1.png etc
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
-    val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
+    test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
     
     # Construct the datasets
-    train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
-    val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
+    full_train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
+    test_dataset = BioFuseImageDataset(test_image_paths, test_labels)
+
+    # Calculate the size of the validation set (same as the test set)
+    val_size = len(test_dataset)
+
+    # Split the training set into train and validation
+    train_size = len(full_train_dataset) - val_size
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        full_train_dataset, 
+        [train_size, val_size],
+        generator=torch.Generator().manual_seed(42)  # For reproducibility
+    )
+
+    print(f"Number of training images: {len(train_dataset)}")
+    print(f"Number of validation images: {len(val_dataset)}")
+    print(f"Number of test images: {len(test_dataset)}")
 
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     
-    return train_loader, val_loader, val_loader, num_classes
+    return train_loader, val_loader, test_loader, num_classes
 
 def extract_features(dataloader, biofuse_model):
     print("Extracting features...")
