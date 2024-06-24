@@ -22,7 +22,7 @@ import argparse
 import torch.optim as optim
 import torch.nn as nn
 
-PATIENCE = 8
+PATIENCE = 25
 
 def set_seed(seed: int = 42) -> None:
     # Set seed that controls randomness related to PyTorch operations
