@@ -220,16 +220,16 @@ def evaluate_model(classifier, features, labels):
     predictions = classifier.predict(features)
     return accuracy_score(labels, predictions)
 
-def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, models, fusion_method, projection_dim):    
-    biofuse = BioFuseModel(models, fusion_method, projection_dim=projection_dim)
+def standalone_eval(train_dataloader, val_dataloader, test_dataloader, biofuse, models, fusion_method, projection_dim):    
+    # biofuse = BioFuseModel(models, fusion_method, projection_dim=projection_dim)
 
-    # Load the state dictionary
-    state_dict = torch.load(model_path)
-    biofuse.load_state_dict(state_dict)
-    biofuse = biofuse.to("cuda")
+    # # Load the state dictionary
+    # state_dict = torch.load(model_path)
+    # biofuse.load_state_dict(state_dict)
+    # biofuse = biofuse.to("cuda")
 
     # Extract features from the training set
-    embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
+    embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_training=True)
 
     # convert to numpy
     embeddings_np = embeddings_tensor.cpu().detach().numpy()
@@ -239,7 +239,7 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_pat
     classifier, scaler = train_classifier(embeddings_np, labels_np)
 
     # Extract features from the validation set
-    val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
+    val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_training=False)
 
     # convert to numpy
     val_embeddings_np = val_embeddings_tensor.cpu().detach().numpy()
@@ -399,24 +399,24 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
 
     print("Training completed.")
     # clear cache
-    biofuse_model.clear_cached_embeddings()
+    #biofuse_model.clear_cached_embeddings()
 
     # Print the best validation accuracy and loss 
     print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")       
 
     # save the best model
-    print("Saving the best model...")
-    model_path = f"./models/biofuse_{fusion_method}.pt"    
-    torch.save(best_model, model_path)
+    # print("Saving the best model...")
+    # model_path = f"./models/biofuse_{fusion_method}.pt"    
+    # torch.save(best_model, model_path)
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
-    val_accuracy, test_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, model_path, model_names, fusion_method, projection_dim)
+    val_accuracy, test_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, biofuse_model, model_names, fusion_method, projection_dim)
 
     append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, test_accuracy)
 
 
 def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, test_accuracy):
-    file_path = f"results_{dataset}.csv"
+    file_path = f"results_{dataset}_{img_size}.csv"
     file_exists = os.path.isfile(file_path)
 
     with open(file_path, mode='a', newline='') as file:
