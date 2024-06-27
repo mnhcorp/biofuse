@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from biofuse.models.embedding_extractor import PreTrainedEmbedding
 from biofuse.models.processor import MultiModelPreprocessor
 
@@ -39,6 +40,9 @@ class BioFuseModel(nn.Module):
         elif self.fusion_method == 'ifusion':
             self.chunk_size = nn.Parameter(torch.tensor(64.0))  # Initialize chunk size to 64
             self.num_models = len(models)
+        elif self.fusion_method == 'self_attention':
+            self.attention = nn.MultiheadAttention(embed_dim=projection_dim, num_heads=8, batch_first=True)
+            self.layer_norm = nn.LayerNorm(projection_dim)
 
     def get_model_dim(self, model_name):
         model_dims = {
@@ -112,6 +116,10 @@ class BioFuseModel(nn.Module):
             fused_embedding = weighted_sum / torch.sum(self.fusion_weights)
         elif self.fusion_method == 'ifusion':
             fused_embedding = self._ifusion(embeddings)
+        elif self.fusion_method == 'self_attention':
+            stacked_embeddings = torch.stack(embeddings, dim=1)  # [batch_size, num_models, embedding_dim]
+            attn_output, _ = self.attention(stacked_embeddings, stacked_embeddings, stacked_embeddings)
+            fused_embedding = self.layer_norm(attn_output.mean(dim=1))  # Average over models
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
@@ -145,6 +153,10 @@ class BioFuseModel(nn.Module):
             fused_embedding = weighted_sum / torch.sum(self.fusion_weights)
         elif self.fusion_method == 'ifusion':
             fused_embedding = self._ifusion(embeddings)
+        elif self.fusion_method == 'self_attention':
+            stacked_embeddings = torch.stack(embeddings, dim=1)  # [batch_size, num_models, embedding_dim]
+            attn_output, _ = self.attention(stacked_embeddings, stacked_embeddings, stacked_embeddings)
+            fused_embedding = self.layer_norm(attn_output.mean(dim=1))  # Average over models
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
