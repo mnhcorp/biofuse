@@ -2,12 +2,12 @@
 
 # Define the table of configurations
 datasets=("octmnist")
-image_sizes=(28)
+image_sizes=(224)
 models=("BioMedCLIP,rad-dino") # "BioMedCLIP,rad-dino,PubMedCLIP")
 #models=("BioMedCLIP,rad-dino,PubMedCLIP")
 
-fusion_methods=("mean" "concat" "max" "sum" "mul" "wsum" "wmean" "ifusion")
-projection_dims=(0 512 1024)
+fusion_methods=("mean" "concat" "max" "sum" "mul" "wsum" "wmean" "ifusion" "self_attention")
+projection_dims=(512 1024)
 epochs=100
 
 # Function to run the experiment
