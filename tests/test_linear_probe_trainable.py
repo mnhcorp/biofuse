@@ -116,16 +116,25 @@ def load_data(dataset, img_size, fast_run):
     full_train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
     test_dataset = BioFuseImageDataset(test_image_paths, test_labels)
 
-    # Calculate the size of the validation set (same as the test set)
-    val_size = len(test_dataset)
+    # Function to get balanced subset
+    def get_balanced_subset(dataset, num_samples):
+        class_counts = {}
+        for _, label in dataset:
+            if label not in class_counts:
+                class_counts[label] = 0
+            class_counts[label] += 1
+        
+        samples_per_class = num_samples // len(class_counts)
+        balanced_indices = []
+        for label in class_counts:
+            label_indices = [i for i, (_, l) in enumerate(dataset) if l == label]
+            balanced_indices.extend(random.sample(label_indices, min(samples_per_class, len(label_indices))))
+        
+        return Subset(dataset, balanced_indices)
 
-    # Split the training set into train and validation
-    train_size = len(full_train_dataset) - val_size  
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        full_train_dataset, 
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)  # For reproducibility
-    )
+    # Get balanced subsets
+    train_dataset = get_balanced_subset(full_train_dataset, 5000)
+    val_dataset = get_balanced_subset(test_dataset, 1000)
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
