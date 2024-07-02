@@ -17,6 +17,7 @@ import medmnist
 from medmnist import INFO
 import random
 import argparse
+import ipdb
 
 # Trainable layer imports
 import torch.optim as optim
@@ -79,7 +80,7 @@ def custom_collate_fn(batch):
     images, labels = zip(*batch)
     return list(images), torch.tensor(labels)
 
-def load_data(dataset, img_size, fast_run):
+def load_data(dataset, img_size, train=True):
     print(f"Loading data for {dataset}...")
     
     info = INFO[dataset]
@@ -132,9 +133,21 @@ def load_data(dataset, img_size, fast_run):
         
         return Subset(dataset, balanced_indices)
 
-    # Get balanced subsets
-    train_dataset = get_balanced_subset(full_train_dataset, 5000)
-    val_dataset = get_balanced_subset(test_dataset, 1000)
+    if train and len(full_train_dataset) > 5000:
+        # Get balanced subsets
+        train_dataset = get_balanced_subset(full_train_dataset, 5000)
+        val_dataset = get_balanced_subset(test_dataset, 1000)
+        test_dataset = get_balanced_subset(test_dataset, 1000)
+    else:
+        # Split the training set into training and validation
+        val_size = len(test_dataset)
+        train_size = len(full_train_dataset) - val_size
+        train_dataset, val_dataset = torch.utils.data.random_split(
+            full_train_dataset, 
+            [train_size, val_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+        
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
@@ -159,6 +172,9 @@ def extract_features(dataloader, biofuse_model):
    
     return np.array(features), np.array(labels)
     
+def print_cuda_mem_stats():
+    print(f"Allocated: {torch.cuda.memory_allocated() / 1024 ** 2:.0f} MB")
+    print(f"Reserved: {torch.cuda.memory_reserved() / 1024 ** 2:.0f} MB")
 
 def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True, is_test=False, progress_bar=False):
     embeddings = []
@@ -167,6 +183,7 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
     data_iter = enumerate(dataloader)
     if progress_bar:
         data_iter = enumerate(tqdm(dataloader))
+
     
     #for image, label in dataloader:
     for index, (image, label) in data_iter:
@@ -175,6 +192,8 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
             embedding = biofuse_model.forward_test(image)
         else:
             embedding = biofuse_model(image, cache_raw_embeddings=cache_raw_embeddings, index=index, is_training=is_training)
+
+        #print_cuda_mem_stats()
         # generate a random tensor for now
         #embedding = torch.randn(512)
         embeddings.append(embedding)
@@ -210,17 +229,22 @@ def log_projection_layer_gradients(model, epoch, stage):
             else:
                 print(f"  - {name}: None")
 
-def train_classifier(features, labels, scaler=None):
+def train_classifier(features, labels, num_classes):
     print("Training classifier...")
 
-    if scaler is None:        
-        scaler = StandardScaler()
+    scaler = StandardScaler()
     
     # Scale features
     features = scaler.fit_transform(features)
 
-    # Train a simple linear classifier
-    classifier = LogisticRegression(max_iter=1000, solver='liblinear')
+    if num_classes > 2:
+        if len(features) < 1000:
+            classifier = LogisticRegression(max_iter=1000, solver='liblinear', multi_class='ovr')
+        else:
+            classifier = LogisticRegression(max_iter=1000, solver='lbfgs', multi_class='multinomial')
+    else:
+        classifier = LogisticRegression(max_iter=1000, solver='liblinear')
+
     classifier.fit(features, labels)
     return classifier, scaler
 
@@ -229,7 +253,7 @@ def evaluate_model(classifier, features, labels):
     predictions = classifier.predict(features)
     return accuracy_score(labels, predictions)
 
-def standalone_eval(train_dataloader, val_dataloader, test_dataloader, biofuse, models, fusion_method, projection_dim):    
+def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim):    
     # biofuse = BioFuseModel(models, fusion_method, projection_dim=projection_dim)
 
     # # Load the state dictionary
@@ -237,18 +261,21 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, biofuse, 
     # biofuse.load_state_dict(state_dict)
     # biofuse = biofuse.to("cuda")
 
+    # Load the data
+    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
+
     # Extract features from the training set
-    embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_training=True)
+    embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
 
     # convert to numpy
     embeddings_np = embeddings_tensor.cpu().detach().numpy()
     labels_np = labels_tensor.cpu().detach().numpy()
 
     # Train a simple linear classifier
-    classifier, scaler = train_classifier(embeddings_np, labels_np)
+    classifier, scaler = train_classifier(embeddings_np, labels_np, num_classes)
 
     # Extract features from the validation set
-    val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_training=False)
+    val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
 
     # convert to numpy
     val_embeddings_np = val_embeddings_tensor.cpu().detach().numpy()
@@ -281,7 +308,7 @@ def standalone_eval(train_dataloader, val_dataloader, test_dataloader, biofuse, 
 def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusion_method, fast_run):
     set_seed(42)
 
-    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, fast_run)
+    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)
     #sys.exit(0)
 
     #model_names = ["CheXagent"] # CheXagent needs a bigger GPU :/
@@ -314,6 +341,9 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     # Extract features from the validation set
     print("Extracting features from the validation set...")
     val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True, is_training=False, progress_bar=True)
+
+    print_cuda_mem_stats()
+    #ipdb.set_trace()
 
     # Set up the classifier
     input_dim = embeddings_np.shape[1]
@@ -393,11 +423,15 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
             if val_accuracy > best_val_acc:
                 best_val_acc = val_accuracy
                 best_loss = val_loss
-                best_model = copy.deepcopy(biofuse_model.state_dict())
+                #best_model = copy.deepcopy(biofuse_model.state_dict())
                 patience_counter = 0
             else:
                 patience_counter += 1
-            
+
+        # Reclaim memory from the GPU for embeddings and labels
+        del embeddings_tensor, labels_tensor
+        del val_embeddings_tensor, val_labels_tensor
+        torch.cuda.empty_cache()    
             
         print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
         #print("-"*80)
@@ -419,7 +453,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     # torch.save(best_model, model_path)
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
-    val_accuracy, test_accuracy = standalone_eval(train_dataloader, val_dataloader, test_dataloader, biofuse_model, model_names, fusion_method, projection_dim)
+    val_accuracy, test_accuracy = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim)
 
     append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, test_accuracy)
 
