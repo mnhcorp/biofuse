@@ -8,6 +8,7 @@ import os
 from huggingface_hub import login
 from biofuse.models.config import AUTH_TOKEN, CACHE_DIR, MODEL_MAP
 from conch.open_clip_custom import create_model_from_pretrained as create_model_from_pretrained_conch
+import ipdb
 
 class PreTrainedEmbedding(nn.Module):
     def __init__(self, model_name):
@@ -70,6 +71,7 @@ class PreTrainedEmbedding(nn.Module):
         self.model = self.model.to("cuda")
 
     def forward(self, input_data):
+        #ipdb.set_trace()
         #print("In PreTrainedEmbedding forward, calling model forward for input of shape: ", input_data.shape)
         with torch.no_grad():
             if self.model_name == "BioMedCLIP":
@@ -81,12 +83,16 @@ class PreTrainedEmbedding(nn.Module):
             elif self.model_name == "PubMedCLIP":
                 outputs = self.model.get_image_features(**input_data)
             elif self.model_name == "rad-dino":
-                outputs = self.model(**input_data).pooler_output
+                # Y U NOT handling memory properly, rad-dino?
+                model_output = self.model(**input_data)
+                outputs = model_output.pooler_output.clone()
+                del model_output             
             elif self.model_name == "CheXagent":
                 #input = input_data['pixel_values']
                 outputs = self.model.vision_model(**(input_data)).last_hidden_state[:, 0, :]
                 #outputs = outputs.detach().cpu().numpy()
             else:
                 outputs = self.model(input_data).last_hidden_state[:, 0, :]
-
+        
+        torch.cuda.empty_cache()
         return outputs
