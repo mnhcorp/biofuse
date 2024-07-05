@@ -17,7 +17,7 @@ import medmnist
 from medmnist import INFO
 import random
 import argparse
-import ipdb
+#import ipdb
 
 # Trainable layer imports
 import torch.optim as optim
