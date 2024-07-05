@@ -7,6 +7,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from medmnist import BreastMNIST
+import xgboost as xgb
 # progressbar
 from tqdm import tqdm
 import sys, os, glob, csv
@@ -244,6 +245,37 @@ def train_classifier(features, labels, num_classes):
             classifier = LogisticRegression(max_iter=1000, solver='lbfgs', multi_class='multinomial')
     else:
         classifier = LogisticRegression(max_iter=1000, solver='liblinear')
+
+    classifier.fit(features, labels)
+    return classifier, scaler
+
+def train_classifier2(features, labels, num_classes):
+    print("Training XGBoost classifier...")
+
+    scaler = StandardScaler()
+    
+    # Scale features
+    features = scaler.fit_transform(features)
+
+    if num_classes > 2:
+        classifier = xgb.XGBClassifier(
+            objective='multi:softprob',
+            num_class=num_classes,
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=6,
+            use_label_encoder=False,
+            eval_metric='mlogloss'
+        )
+    else:
+        classifier = xgb.XGBClassifier(
+            objective='binary:logistic',
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=6,
+            use_label_encoder=False,
+            eval_metric='logloss'
+        )
 
     classifier.fit(features, labels)
     return classifier, scaler
