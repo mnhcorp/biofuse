@@ -304,7 +304,7 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     labels_np = labels_tensor.cpu().detach().numpy()
 
     # Train a simple linear classifier
-    classifier, scaler = train_classifier(embeddings_np, labels_np, num_classes)
+    classifier, scaler = train_classifier2(embeddings_np, labels_np, num_classes)
 
     # Extract features from the validation set
     val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
