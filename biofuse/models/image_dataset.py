@@ -14,7 +14,7 @@ class BioFuseImageDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.images[idx]
-        if self.path:
+        if self.path:            
             try:
                 image = Image.open(img_path)
                 if self.rgb:

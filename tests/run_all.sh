@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Define the table of configurations
-datasets=("breastmnist")
-image_sizes=(224)
+datasets=("$1")
+image_sizes=($2)
 # all combinations of these 3 models - BioMedCLIP, rad-dino, PubMedCLIP
 models=("BioMedCLIP" "rad-dino" "PubMedCLIP" "BioMedCLIP,rad-dino" "BioMedCLIP,PubMedCLIP" "rad-dino,PubMedCLIP" "BioMedCLIP,rad-dino,PubMedCLIP")
 #models=("BioMedCLIP,rad-dino") # "BioMedCLIP,rad-dino,PubMedCLIP")

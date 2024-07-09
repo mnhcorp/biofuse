@@ -37,8 +37,8 @@ class ModelPreprocessor:
 
     def preprocess(self, image):       
         if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI"]:
-            if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:
-                preprocessed_image = self.processor(image).unsqueeze(0).to("cuda")
+            if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:                
+                preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
             elif self.model_name == "Prov-GigaPath":
                 preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
             elif self.model_name in ["PubMedCLIP", "rad-dino"]:

@@ -90,21 +90,20 @@ def load_data(dataset, img_size, train=True):
     DataClass = getattr(medmnist, info['python_class'])
     
     train_dataset = DataClass(split='train', download=True, size=img_size, root='/data/medmnist')
-    test_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')
-    
-    # Save the images to disk if not already done
-    if not os.path.exists(f'/tmp/{dataset}_train'):
-        train_dataset.save(f'/tmp/{dataset}_train')
-    
-    if not os.path.exists(f'/tmp/{dataset}_val'):
-        test_dataset.save(f'/tmp/{dataset}_val')
+    test_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')    
     
     if img_size == 28:
-        train_images_path = f'/tmp/{dataset}_train/{dataset}'
-        test_images_path = f'/tmp/{dataset}_val/{dataset}'
+        train_images_path = f'/data/medmnist/{dataset}_train/{dataset}'
+        test_images_path = f'/data/medmnist/{dataset}_val/{dataset}'
     else:
-        train_images_path = f'/tmp/{dataset}_train/{dataset}_{img_size}'
-        test_images_path = f'/tmp/{dataset}_val/{dataset}_{img_size}'
+        train_images_path = f'/data/medmnist/{dataset}_train/{dataset}_{img_size}'
+        test_images_path = f'/data/medmnist/{dataset}_val/{dataset}_{img_size}'
+
+    if not os.path.exists(train_images_path):
+        train_dataset.save(f'/data/medmnist/{dataset}_train')
+    
+    if not os.path.exists(test_images_path):
+        test_dataset.save(f'/data/medmnist/{dataset}_val')
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
@@ -134,20 +133,26 @@ def load_data(dataset, img_size, train=True):
         
         return Subset(dataset, balanced_indices)
 
+    # Disable training for now
+    train=False
+
     if train and len(full_train_dataset) > 5000:
         # Get balanced subsets
         train_dataset = get_balanced_subset(full_train_dataset, 5000)
         val_dataset = get_balanced_subset(test_dataset, 1000)
         test_dataset = get_balanced_subset(test_dataset, 1000)
     else:
+        train_dataset = full_train_dataset
+        val_dataset = test_dataset
+        test_dataset = test_dataset
         # Split the training set into training and validation
-        val_size = len(test_dataset)
-        train_size = len(full_train_dataset) - val_size
-        train_dataset, val_dataset = torch.utils.data.random_split(
-            full_train_dataset, 
-            [train_size, val_size],
-            generator=torch.Generator().manual_seed(42)
-        )
+        # val_size = len(test_dataset)
+        # train_size = len(full_train_dataset) - val_size
+        # train_dataset, val_dataset = torch.utils.data.random_split(
+        #     full_train_dataset, 
+        #     [train_size, val_size],
+        #     generator=torch.Generator().manual_seed(42)
+        # )
         
 
     print(f"Number of training images: {len(train_dataset)}")
@@ -297,7 +302,10 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
 
     # Extract features from the training set
-    embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
+    if len(train_dataloader) > 5000:
+        embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
+    else:
+        embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True)
 
     # convert to numpy
     embeddings_np = embeddings_tensor.cpu().detach().numpy()
@@ -307,7 +315,10 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     classifier, scaler = train_classifier2(embeddings_np, labels_np, num_classes)
 
     # Extract features from the validation set
-    val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
+    if len(val_dataloader) > 5000:
+        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
+    else:
+        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_training=False)
 
     # convert to numpy
     val_embeddings_np = val_embeddings_tensor.cpu().detach().numpy()
@@ -319,18 +330,20 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     # Evaluate the model
     val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
     print(f"Validation Accuracy: {val_accuracy:.4f}")
+
+    test_accuracy = val_accuracy
     
-    # on the test set
-    test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
+    # # on the test set
+    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
 
-    # convert to numpy
-    test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
-    test_labels_np = test_labels_tensor.cpu().detach().numpy()
+    # # convert to numpy
+    # test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
+    # test_labels_np = test_labels_tensor.cpu().detach().numpy()
 
-    # Scale features
-    test_embeddings_np = scaler.transform(test_embeddings_np)
+    # # Scale features
+    # test_embeddings_np = scaler.transform(test_embeddings_np)
 
-    test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+    # test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
 
     print(f"Test Accuracy: {test_accuracy:.4f}")
     return val_accuracy, test_accuracy

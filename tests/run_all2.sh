@@ -1,10 +1,12 @@
 #!/bin/bash
 
 # Define the table of configurations
-datasets=("breastmnist")
-image_sizes=(224)
+datasets=("$1")
+image_sizes=($2)
 # all combinations of these 3 models - BioMedCLIP, rad-dino, PubMedCLIP
-models=("BioMedCLIP" "rad-dino" "PubMedCLIP" "BioMedCLIP,rad-dino" "BioMedCLIP,PubMedCLIP" "rad-dino,PubMedCLIP" "BioMedCLIP,rad-dino,PubMedCLIP")
+#models=("BioMedCLIP" "rad-dino" "PubMedCLIP" "BioMedCLIP,rad-dino" "BioMedCLIP,PubMedCLIP" "rad-dino,PubMedCLIP" "BioMedCLIP,rad-dino,PubMedCLIP")
+# add UNI to the mix, all combinations
+models=("UNI" "BioMedCLIP,UNI" "rad-dino,UNI" "PubMedCLIP,UNI" "BioMedCLIP,rad-dino,UNI" "BioMedCLIP,PubMedCLIP,UNI" "rad-dino,PubMedCLIP,UNI" "BioMedCLIP,rad-dino,PubMedCLIP,UNI")
 #models=("BioMedCLIP,rad-dino") # "BioMedCLIP,rad-dino,PubMedCLIP")
 #models=("BioMedCLIP,rad-dino,PubMedCLIP")
 
@@ -13,7 +15,6 @@ fusion_methods=("concat")
 #fusion_methods=("mean" "concat" "sum" "mul" "ifusion")
 projection_dims=(0) # 1536 2048)
 epochs=1 #00
-
 # Function to run the experiment
 run_experiment() {
     dataset=$1

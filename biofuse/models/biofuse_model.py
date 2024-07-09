@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from biofuse.models.embedding_extractor import PreTrainedEmbedding
 from biofuse.models.processor import MultiModelPreprocessor
+import ipdb
 
 class BioFuseModel(nn.Module):
     def __init__(self, models, fusion_method='concat', projection_dim=512):
@@ -77,6 +78,7 @@ class BioFuseModel(nn.Module):
         return torch.cat(interleaved_chunks, dim=-1)
 
     def forward(self, input, cache_raw_embeddings=False, index=None, is_training=True):
+        #ipdb.set_trace()
         cache = self.cached_train_embeddings if is_training else self.cached_val_embeddings
 
         if index is not None and all(index in cache[model] for model in self.models):
@@ -94,10 +96,13 @@ class BioFuseModel(nn.Module):
 
         # Print size of the cache to check if it is growing
         #print("Size of cache: ", sum([len(cache[model]) for model in self.models]))
+        
+        # remove the first dimension from the embeddings if it is 1
+        raw_embeddings = [embedding.squeeze(0) for embedding in raw_embeddings]
 
         embeddings = [projection(raw_embedding) for raw_embedding, projection in zip(raw_embeddings, self.projection_layers)]
         
-        if self.fusion_method == 'concat':
+        if self.fusion_method == 'concat':        
             fused_embedding = torch.cat(embeddings, dim=-1)
         elif self.fusion_method == 'mean':
             fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
