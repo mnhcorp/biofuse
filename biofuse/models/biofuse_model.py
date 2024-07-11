@@ -137,6 +137,8 @@ class BioFuseModel(nn.Module):
             embedding = extractor(img)
             raw_embeddings.append(embedding)
 
+        raw_embeddings = [embedding.squeeze(0) for embedding in raw_embeddings]
+
         embeddings = [projection(raw_embedding) for raw_embedding, projection in zip(raw_embeddings, self.projection_layers)]
         
         if self.fusion_method == 'concat':

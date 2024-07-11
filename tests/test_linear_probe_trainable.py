@@ -302,10 +302,10 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
 
     # Extract features from the training set
-    if len(train_dataloader) > 5000:
-        embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
-    else:
-        embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True)
+    # if len(train_dataloader) > 5000:
+    #     embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
+    # else:
+    embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True)
 
     # convert to numpy
     embeddings_np = embeddings_tensor.cpu().detach().numpy()
@@ -315,10 +315,10 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     classifier, scaler = train_classifier2(embeddings_np, labels_np, num_classes)
 
     # Extract features from the validation set
-    if len(val_dataloader) > 5000:
-        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
-    else:
-        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_training=False)
+    # if len(val_dataloader) > 5000:
+    #     val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
+    # else:
+    val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_training=False)
 
     # convert to numpy
     val_embeddings_np = val_embeddings_tensor.cpu().detach().numpy()

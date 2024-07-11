@@ -79,7 +79,9 @@ class PreTrainedEmbedding(nn.Module):
             elif self.model_name == "CONCH":
                 outputs = self.model.encode_image(input_data, proj_contrast=False, normalize=False)
             elif self.model_name in ["Prov-GigaPath", "UNI"]:
-                outputs = self.model(input_data).squeeze()
+                model_output = self.model(input_data)
+                outputs = model_output.squeeze().clone()
+                del model_output
             elif self.model_name == "PubMedCLIP":
                 outputs = self.model.get_image_features(**input_data)
             elif self.model_name == "rad-dino":
