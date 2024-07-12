@@ -3,8 +3,8 @@ from biofuse.models.biofuse_model import BioFuseModel
 from biofuse.models.embedding_extractor import PreTrainedEmbedding
 from PIL import Image
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from sklearn.linear_model import LogisticRegression
 from medmnist import BreastMNIST
 import xgboost as xgb
@@ -285,10 +285,45 @@ def train_classifier2(features, labels, num_classes):
     classifier.fit(features, labels)
     return classifier, scaler
 
+def train_classifier3(features, labels, num_classes):
+    print("Training ordinal regression classifier...")
+
+    scaler = StandardScaler()
+    
+    # Scale features
+    features = scaler.fit_transform(features)
+
+    # Encode labels for ordinal regression
+    encoder = OrdinalEncoder()
+    labels = encoder.fit_transform(labels.reshape(-1, 1)).ravel()
+
+    # multi-class classification using xgboost
+    classifier = xgb.XGBClassifier(
+        objective='multi:softprob',
+        num_class=len(encoder.categories_[0]),
+        n_estimators=100,
+        learning_rate=0.1,        
+        eval_metric='mlogloss'
+    )
+
+    classifier.fit(features, labels)
+    return classifier, scaler
+
 def evaluate_model(classifier, features, labels):
     print("Evaluating model...")
     predictions = classifier.predict(features)
     return accuracy_score(labels, predictions)
+
+# method to compute AUC-ROC for binary or multi-class classification
+def compute_auc_roc(classifier, features, labels, num_classes):
+    print("Computing AUC-ROC...")
+    if num_classes == 2:
+        predictions = classifier.predict_proba(features)[:, 1]
+        return roc_auc_score(labels, predictions)
+    else:
+        # use one-vs-all strategy
+        predictions = classifier.predict_proba(features)
+        return roc_auc_score(labels, predictions, multi_class='ovr')
 
 def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim):    
     # biofuse = BioFuseModel(models, fusion_method, projection_dim=projection_dim)
@@ -311,7 +346,6 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     embeddings_np = embeddings_tensor.cpu().detach().numpy()
     labels_np = labels_tensor.cpu().detach().numpy()
 
-    # Train a simple linear classifier
     classifier, scaler = train_classifier2(embeddings_np, labels_np, num_classes)
 
     # Extract features from the validation set
@@ -331,7 +365,9 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
     print(f"Validation Accuracy: {val_accuracy:.4f}")
 
-    test_accuracy = val_accuracy
+    # Compute AUC-ROC
+    val_auc_roc = compute_auc_roc(classifier, val_embeddings_np, val_labels_np, num_classes)
+
     
     # # on the test set
     # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
@@ -345,8 +381,8 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
 
     # test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
 
-    print(f"Test Accuracy: {test_accuracy:.4f}")
-    return val_accuracy, test_accuracy
+    #print(f"Test Accuracy: {test_accuracy:.4f}")
+    return val_accuracy, val_auc_roc
 
         
 # Training the model with validation-informed adjustment
@@ -498,18 +534,18 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     # torch.save(best_model, model_path)
 
     # print(f"Test Accuracy: {test_accuracy:.4f}")
-    val_accuracy, test_accuracy = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim)
+    val_accuracy, val_auc = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim)
 
-    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, test_accuracy)
+    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, val_auc)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, test_accuracy):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc):
     file_path = f"results_{dataset}_{img_size}.csv"
     file_exists = os.path.isfile(file_path)
 
     with open(file_path, mode='a', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{test_accuracy:.3f}'])
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}'])
 
 
 def main():
