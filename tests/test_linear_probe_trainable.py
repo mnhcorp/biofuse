@@ -321,20 +321,10 @@ def compute_auc_roc(classifier, features, labels, num_classes):
         return roc_auc_score(labels, predictions, multi_class='ovr')
 
 def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim):    
-    # biofuse = BioFuseModel(models, fusion_method, projection_dim=projection_dim)
-
-    # # Load the state dictionary
-    # state_dict = torch.load(model_path)
-    # biofuse.load_state_dict(state_dict)
-    # biofuse = biofuse.to("cuda")
-
     # Load the data
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
 
     # Extract features from the training set
-    # if len(train_dataloader) > 5000:
-    #     embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True, is_test=True)
-    # else:
     embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True)
 
     # convert to numpy
@@ -343,41 +333,31 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
 
     classifier, scaler = train_classifier2(embeddings_np, labels_np, num_classes)
 
-    # Extract features from the validation set
-    # if len(val_dataloader) > 5000:
-    #     val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_test=True)
-    # else:
+    # Validation set evaluation
     val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_training=False)
-
-    # convert to numpy
     val_embeddings_np = val_embeddings_tensor.cpu().detach().numpy()
     val_labels_np = val_labels_tensor.cpu().detach().numpy()
-
-    # Scale features
     val_embeddings_np = scaler.transform(val_embeddings_np)
 
-    # Evaluate the model
     val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
-    print(f"Validation Accuracy: {val_accuracy:.4f}")
-
-    # Compute AUC-ROC
     val_auc_roc = compute_auc_roc(classifier, val_embeddings_np, val_labels_np, num_classes)
 
-    
-    # # on the test set
-    # test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
+    print(f"Validation Accuracy: {val_accuracy:.4f}")
+    print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
-    # # convert to numpy
-    # test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
-    # test_labels_np = test_labels_tensor.cpu().detach().numpy()
+    # Test set evaluation
+    test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_training=False)
+    test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
+    test_labels_np = test_labels_tensor.cpu().detach().numpy()
+    test_embeddings_np = scaler.transform(test_embeddings_np)
 
-    # # Scale features
-    # test_embeddings_np = scaler.transform(test_embeddings_np)
+    test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+    test_auc_roc = compute_auc_roc(classifier, test_embeddings_np, test_labels_np, num_classes)
 
-    # test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
+    print(f"Test Accuracy: {test_accuracy:.4f}")
+    print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
-    #print(f"Test Accuracy: {test_accuracy:.4f}")
-    return val_accuracy, val_auc_roc
+    return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
         
 # Training the model with validation-informed adjustment
@@ -523,24 +503,21 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     # Print the best validation accuracy and loss 
     print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")       
 
-    # save the best model
-    # print("Saving the best model...")
-    # model_path = f"./models/biofuse_{fusion_method}.pt"    
-    # torch.save(best_model, model_path)
+    # Evaluate on validation and test sets
+    val_accuracy, val_auc, test_accuracy, test_auc = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim)
 
-    # print(f"Test Accuracy: {test_accuracy:.4f}")
-    val_accuracy, val_auc = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim)
-
-    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, val_auc)
+    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, val_auc, test_accuracy, test_auc)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc):
     file_path = f"results_{dataset}_{img_size}.csv"
     file_exists = os.path.isfile(file_path)
 
     with open(file_path, mode='a', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}'])
+        if not file_exists:
+            writer.writerow(['Dataset', 'Image Size', 'Models', 'Fusion Method', 'Projection Dim', 'Epochs', 'Val Accuracy', 'Val AUC-ROC', 'Test Accuracy', 'Test AUC-ROC'])
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}'])
 
 
 def main():
