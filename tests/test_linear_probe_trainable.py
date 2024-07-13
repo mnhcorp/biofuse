@@ -90,31 +90,40 @@ def load_data(dataset, img_size, train=True):
     DataClass = getattr(medmnist, info['python_class'])
     
     train_dataset = DataClass(split='train', download=True, size=img_size, root='/data/medmnist')
-    test_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')    
+    val_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')
+    test_dataset = DataClass(split='test', download=True, size=img_size, root='/data/medmnist')
     
     if img_size == 28:
         train_images_path = f'/data/medmnist/{dataset}_train/{dataset}'
-        test_images_path = f'/data/medmnist/{dataset}_val/{dataset}'
+        val_images_path = f'/data/medmnist/{dataset}_val/{dataset}'
+        test_images_path = f'/data/medmnist/{dataset}_test/{dataset}'
     else:
         train_images_path = f'/data/medmnist/{dataset}_train/{dataset}_{img_size}'
-        test_images_path = f'/data/medmnist/{dataset}_val/{dataset}_{img_size}'
+        val_images_path = f'/data/medmnist/{dataset}_val/{dataset}_{img_size}'
+        test_images_path = f'/data/medmnist/{dataset}_test/{dataset}_{img_size}'
 
     if not os.path.exists(train_images_path):
         train_dataset.save(f'/data/medmnist/{dataset}_train')
     
+    if not os.path.exists(val_images_path):
+        val_dataset.save(f'/data/medmnist/{dataset}_val')
+    
     if not os.path.exists(test_images_path):
-        test_dataset.save(f'/data/medmnist/{dataset}_val')
+        test_dataset.save(f'/data/medmnist/{dataset}_test')
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
+    val_image_paths = glob.glob(f'{val_images_path}/*.png')
     test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
     # Labels are just _0.png or _1.png etc
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
+    val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
     test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
     
     # Construct the datasets
     full_train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
+    val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
     test_dataset = BioFuseImageDataset(test_image_paths, test_labels)
 
     # Function to get balanced subset
@@ -133,27 +142,13 @@ def load_data(dataset, img_size, train=True):
         
         return Subset(dataset, balanced_indices)
 
-    # Disable training for now
-    train=False
-
     if train and len(full_train_dataset) > 5000:
         # Get balanced subsets
         train_dataset = get_balanced_subset(full_train_dataset, 5000)
-        val_dataset = get_balanced_subset(test_dataset, 1000)
+        val_dataset = get_balanced_subset(val_dataset, 1000)
         test_dataset = get_balanced_subset(test_dataset, 1000)
     else:
         train_dataset = full_train_dataset
-        val_dataset = test_dataset
-        test_dataset = test_dataset
-        # Split the training set into training and validation
-        # val_size = len(test_dataset)
-        # train_size = len(full_train_dataset) - val_size
-        # train_dataset, val_dataset = torch.utils.data.random_split(
-        #     full_train_dataset, 
-        #     [train_size, val_size],
-        #     generator=torch.Generator().manual_seed(42)
-        # )
-        
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
