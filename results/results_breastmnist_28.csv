@@ -1,0 +1,16 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC
+breastmnist,28,BioMedCLIP,concat,0,1,0.846,0.876,0.865,0.883
+breastmnist,28,rad-dino,concat,0,1,0.859,0.856,0.827,0.826
+breastmnist,28,PubMedCLIP,concat,0,1,0.808,0.895,0.801,0.889
+breastmnist,28,"BioMedCLIP,rad-dino",concat,0,1,0.859,0.880,0.846,0.903
+breastmnist,28,"BioMedCLIP,PubMedCLIP",concat,0,1,0.821,0.869,0.853,0.882
+breastmnist,28,"rad-dino,PubMedCLIP",concat,0,1,0.846,0.903,0.840,0.879
+breastmnist,28,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.897,0.889,0.853,0.908
+breastmnist,28,UNI,concat,0,1,0.872,0.854,0.853,0.845
+breastmnist,28,"BioMedCLIP,UNI",concat,0,1,0.859,0.886,0.827,0.888
+breastmnist,28,"rad-dino,UNI",concat,0,1,0.846,0.878,0.808,0.864
+breastmnist,28,"PubMedCLIP,UNI",concat,0,1,0.859,0.893,0.833,0.868
+breastmnist,28,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.872,0.888,0.833,0.888
+breastmnist,28,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.872,0.901,0.840,0.888
+breastmnist,28,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.846,0.888,0.846,0.878
+breastmnist,28,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.833,0.870,0.853,0.872

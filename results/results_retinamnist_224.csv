@@ -1,0 +1,16 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC
+retinamnist,224,BioMedCLIP,concat,0,1,0.517,0.817,0.565,0.804
+retinamnist,224,rad-dino,concat,0,1,0.550,0.807,0.568,0.785
+retinamnist,224,PubMedCLIP,concat,0,1,0.600,0.803,0.575,0.802
+retinamnist,224,"BioMedCLIP,rad-dino",concat,0,1,0.583,0.826,0.575,0.812
+retinamnist,224,"BioMedCLIP,PubMedCLIP",concat,0,1,0.575,0.830,0.555,0.803
+retinamnist,224,"rad-dino,PubMedCLIP",concat,0,1,0.625,0.843,0.585,0.811
+retinamnist,224,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.633,0.835,0.595,0.817
+retinamnist,224,UNI,concat,0,1,0.625,0.864,0.590,0.816
+retinamnist,224,"BioMedCLIP,UNI",concat,0,1,0.600,0.852,0.608,0.824
+retinamnist,224,"rad-dino,UNI",concat,0,1,0.642,0.861,0.605,0.818
+retinamnist,224,"PubMedCLIP,UNI",concat,0,1,0.600,0.856,0.598,0.826
+retinamnist,224,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.617,0.845,0.598,0.830
+retinamnist,224,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.600,0.847,0.568,0.822
+retinamnist,224,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.625,0.864,0.613,0.821
+retinamnist,224,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.583,0.843,0.593,0.819

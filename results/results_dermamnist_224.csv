@@ -1,0 +1,16 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC
+dermamnist,224,BioMedCLIP,concat,0,1,0.666,0.733,0.678,0.909
+dermamnist,224,rad-dino,concat,0,1,0.668,0.696,0.671,0.866
+dermamnist,224,PubMedCLIP,concat,0,1,0.675,0.733,0.671,0.898
+dermamnist,224,"BioMedCLIP,rad-dino",concat,0,1,0.672,0.742,0.675,0.915
+dermamnist,224,"BioMedCLIP,PubMedCLIP",concat,0,1,0.669,0.738,0.677,0.916
+dermamnist,224,"rad-dino,PubMedCLIP",concat,0,1,0.668,0.732,0.673,0.903
+dermamnist,224,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.666,0.739,0.675,0.927
+dermamnist,224,UNI,concat,0,1,0.672,0.730,0.672,0.917
+dermamnist,224,"BioMedCLIP,UNI",concat,0,1,0.670,0.743,0.677,0.929
+dermamnist,224,"rad-dino,UNI",concat,0,1,0.670,0.740,0.675,0.922
+dermamnist,224,"PubMedCLIP,UNI",concat,0,1,0.665,0.746,0.675,0.920
+dermamnist,224,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.666,0.748,0.675,0.928
+dermamnist,224,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.666,0.745,0.678,0.928
+dermamnist,224,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.672,0.743,0.673,0.922
+dermamnist,224,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.668,0.743,0.679,0.929
