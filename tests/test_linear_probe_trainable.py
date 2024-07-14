@@ -346,7 +346,7 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
     # Test set evaluation
-    test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_training=False)
+    test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
     test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
     test_labels_np = test_labels_tensor.cpu().detach().numpy()
     test_embeddings_np = scaler.transform(test_embeddings_np)
