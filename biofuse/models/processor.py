@@ -30,18 +30,23 @@ class ModelPreprocessor:
             preprocessor = AutoImageProcessor.from_pretrained(self.model_info["model"])
         elif self.model_name == "UNI":
             preprocessor = self.model_info["tokenizer"]
+        elif self.model_name == "Hibou-B":
+            preprocessor = AutoImageProcessor.from_pretrained(self.model_info["model"], trust_remote_code=True)
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
         
         return preprocessor
 
     def preprocess(self, image):       
-        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI"]:
+        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI", "Hibou-B"]:
             if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:                
                 preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
             elif self.model_name == "Prov-GigaPath":
                 preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
-            elif self.model_name in ["PubMedCLIP", "rad-dino"]:
+            elif self.model_name in ["PubMedCLIP", "rad-dino", "Hibou-B"]:               
+                if self.model_name == "Hibou-B":
+                    image = image.convert('RGB')
+
                 preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda")
             else:
                 preprocessed_image = self.processor(image)

@@ -64,6 +64,9 @@ class PreTrainedEmbedding(nn.Module):
             )
             self.model.load_state_dict(torch.load("/data/hf-hub/ckpts/vit_large_patch16_224.dinov2.uni_mass100k/pytorch_model.bin", map_location="cpu"), strict=True)
             self.processor = model_info["tokenizer"]
+        elif self.model_name == "Hibou-B":
+            self.model = AutoModel.from_pretrained(model_info["model"], trust_remote_code=True)
+            self.processor = AutoImageProcessor.from_pretrained(model_info["model"], trust_remote_code=True)
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
         
@@ -77,15 +80,16 @@ class PreTrainedEmbedding(nn.Module):
             if self.model_name == "BioMedCLIP":
                 outputs = self.model.encode_image(input_data)
             elif self.model_name == "CONCH":
-                outputs = self.model.encode_image(input_data, proj_contrast=False, normalize=False)
+                model_output = self.model.encode_image(input_data, proj_contrast=False, normalize=False)
+                outputs = model_output.clone()
+                del model_output
             elif self.model_name in ["Prov-GigaPath", "UNI"]:
                 model_output = self.model(input_data)
                 outputs = model_output.squeeze().clone()
                 del model_output
             elif self.model_name == "PubMedCLIP":
                 outputs = self.model.get_image_features(**input_data)
-            elif self.model_name == "rad-dino":
-                # Y U NOT handling memory properly, rad-dino?
+            elif self.model_name in ["rad-dino", "Hibou-B"]:                
                 model_output = self.model(**input_data)
                 outputs = model_output.pooler_output.clone()
                 del model_output             

@@ -142,13 +142,13 @@ def load_data(dataset, img_size, train=True):
         
         return Subset(dataset, balanced_indices)
 
-    if train and len(full_train_dataset) > 5000:
-        # Get balanced subsets
-        train_dataset = get_balanced_subset(full_train_dataset, 5000)
-        val_dataset = get_balanced_subset(val_dataset, 1000)
-        test_dataset = get_balanced_subset(test_dataset, 1000)
-    else:
-        train_dataset = full_train_dataset
+    # if train and len(full_train_dataset) > 5000:
+    #     # Get balanced subsets
+    #     train_dataset = get_balanced_subset(full_train_dataset, 5000)
+    #     val_dataset = get_balanced_subset(val_dataset, 1000)
+    #     test_dataset = get_balanced_subset(test_dataset, 1000)
+    # else:
+    train_dataset = full_train_dataset
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
