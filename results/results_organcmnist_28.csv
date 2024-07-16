@@ -1,0 +1,19 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC
+organcmnist,28,BioMedCLIP,concat,0,1,0.904,0.996,0.805,0.980
+organcmnist,28,rad-dino,concat,0,1,0.901,0.993,0.789,0.975
+organcmnist,28,PubMedCLIP,concat,0,1,0.888,0.995,0.813,0.981
+organcmnist,28,"BioMedCLIP,rad-dino",concat,0,1,0.935,0.997,0.842,0.986
+organcmnist,28,"BioMedCLIP,PubMedCLIP",concat,0,1,0.923,0.998,0.836,0.985
+organcmnist,28,"rad-dino,PubMedCLIP",concat,0,1,0.921,0.996,0.835,0.986
+organcmnist,28,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.937,0.997,0.855,0.988
+organcmnist,28,CONCH,concat,0,1,0.849,0.991,0.740,0.968
+organcmnist,28,Prov-GigaPath,concat,0,1,0.857,0.992,0.788,0.977
+organcmnist,28,Hibou-B,concat,0,1,0.904,0.995,0.816,0.983
+organcmnist,28,UNI,concat,0,1,0.883,0.994,0.801,0.981
+organcmnist,28,"BioMedCLIP,UNI",concat,0,1,0.928,0.997,0.846,0.987
+organcmnist,28,"rad-dino,UNI",concat,0,1,0.917,0.996,0.838,0.987
+organcmnist,28,"PubMedCLIP,UNI",concat,0,1,0.913,0.997,0.842,0.987
+organcmnist,28,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.936,0.997,0.861,0.989
+organcmnist,28,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.927,0.998,0.856,0.989
+organcmnist,28,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.929,0.997,0.855,0.989
+organcmnist,28,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.938,0.998,0.865,0.990

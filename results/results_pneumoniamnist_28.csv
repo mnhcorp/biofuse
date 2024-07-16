@@ -6,6 +6,9 @@ pneumoniamnist,28,"BioMedCLIP,rad-dino",concat,0,1,0.960,0.990,0.888,0.976
 pneumoniamnist,28,"BioMedCLIP,PubMedCLIP",concat,0,1,0.945,0.985,0.864,0.964
 pneumoniamnist,28,"rad-dino,PubMedCLIP",concat,0,1,0.950,0.986,0.880,0.976
 pneumoniamnist,28,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.960,0.989,0.878,0.975
+pneumoniamnist,28,CONCH,concat,0,1,0.935,0.978,0.840,0.946
+pneumoniamnist,28,Prov-GigaPath,concat,0,1,0.945,0.985,0.856,0.960
+pneumoniamnist,28,Hibou-B,concat,0,1,0.939,0.979,0.854,0.949
 pneumoniamnist,28,UNI,concat,0,1,0.931,0.978,0.822,0.948
 pneumoniamnist,28,"BioMedCLIP,UNI",concat,0,1,0.952,0.987,0.851,0.967
 pneumoniamnist,28,"rad-dino,UNI",concat,0,1,0.954,0.990,0.881,0.976

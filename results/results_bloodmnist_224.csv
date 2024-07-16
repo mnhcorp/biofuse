@@ -1,0 +1,19 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC
+bloodmnist,224,BioMedCLIP,concat,0,1,0.941,0.997,0.949,0.997
+bloodmnist,224,rad-dino,concat,0,1,0.923,0.994,0.910,0.994
+bloodmnist,224,PubMedCLIP,concat,0,1,0.939,0.997,0.934,0.996
+bloodmnist,224,"BioMedCLIP,rad-dino",concat,0,1,0.957,0.998,0.960,0.998
+bloodmnist,224,"BioMedCLIP,PubMedCLIP",concat,0,1,0.957,0.998,0.963,0.998
+bloodmnist,224,"rad-dino,PubMedCLIP",concat,0,1,0.954,0.998,0.952,0.998
+bloodmnist,224,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.966,0.999,0.966,0.998
+bloodmnist,224,CONCH,concat,0,1,0.961,0.999,0.963,0.998
+bloodmnist,224,Prov-GigaPath,concat,0,1,0.971,0.999,0.959,0.998
+bloodmnist,224,Hibou-B,concat,0,1,0.984,1.000,0.983,0.999
+bloodmnist,224,UNI,concat,0,1,0.970,0.999,0.976,0.999
+bloodmnist,224,"BioMedCLIP,UNI",concat,0,1,0.975,0.999,0.977,0.999
+bloodmnist,224,"rad-dino,UNI",concat,0,1,0.973,0.999,0.976,0.999
+bloodmnist,224,"PubMedCLIP,UNI",concat,0,1,0.968,0.999,0.976,0.999
+bloodmnist,224,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.973,0.999,0.980,0.999
+bloodmnist,224,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.975,0.999,0.977,0.999
+bloodmnist,224,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.969,0.999,0.976,0.999
+bloodmnist,224,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.973,0.999,0.978,0.999

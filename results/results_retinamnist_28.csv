@@ -6,6 +6,9 @@ retinamnist,28,"BioMedCLIP,rad-dino",concat,0,1,0.533,0.762,0.532,0.731
 retinamnist,28,"BioMedCLIP,PubMedCLIP",concat,0,1,0.517,0.783,0.507,0.742
 retinamnist,28,"rad-dino,PubMedCLIP",concat,0,1,0.550,0.802,0.517,0.744
 retinamnist,28,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.525,0.797,0.520,0.755
+retinamnist,28,CONCH,concat,0,1,0.508,0.740,0.502,0.710
+retinamnist,28,Prov-GigaPath,concat,0,1,0.492,0.759,0.545,0.756
+retinamnist,28,Hibou-B,concat,0,1,0.542,0.759,0.497,0.733
 retinamnist,28,UNI,concat,0,1,0.508,0.791,0.512,0.728
 retinamnist,28,"BioMedCLIP,UNI",concat,0,1,0.525,0.776,0.520,0.738
 retinamnist,28,"rad-dino,UNI",concat,0,1,0.525,0.799,0.547,0.738
