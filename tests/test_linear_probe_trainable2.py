@@ -141,17 +141,30 @@ def load_data(dataset, img_size, train=True):
 
     # Function to get balanced subset
     def get_balanced_subset(dataset, num_samples):
-        class_counts = {}
-        for _, label in dataset:
-            if label not in class_counts:
-                class_counts[label] = 0
-            class_counts[label] += 1
-        
-        samples_per_class = num_samples // len(class_counts)
-        balanced_indices = []
-        for label in class_counts:
-            label_indices = [i for i, (_, l) in enumerate(dataset) if l == label]
-            balanced_indices.extend(random.sample(label_indices, min(samples_per_class, len(label_indices))))
+        if isinstance(dataset[0][1], list):  # Multi-label case
+            label_counts = {i: 0 for i in range(len(dataset[0][1]))}
+            for _, labels in dataset:
+                for i, label in enumerate(labels):
+                    if label == 1:
+                        label_counts[i] += 1
+            
+            samples_per_class = num_samples // len(label_counts)
+            balanced_indices = []
+            for label in label_counts:
+                label_indices = [i for i, (_, labels) in enumerate(dataset) if labels[label] == 1]
+                balanced_indices.extend(random.sample(label_indices, min(samples_per_class, len(label_indices))))
+        else:  # Single-label case
+            class_counts = {}
+            for _, label in dataset:
+                if label not in class_counts:
+                    class_counts[label] = 0
+                class_counts[label] += 1
+            
+            samples_per_class = num_samples // len(class_counts)
+            balanced_indices = []
+            for label in class_counts:
+                label_indices = [i for i, (_, l) in enumerate(dataset) if l == label]
+                balanced_indices.extend(random.sample(label_indices, min(samples_per_class, len(label_indices))))
         
         return Subset(dataset, balanced_indices)
 
