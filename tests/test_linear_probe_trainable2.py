@@ -113,14 +113,27 @@ def load_data(dataset, img_size, train=True):
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
+    print(train_image_paths[0])
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
     test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
-    # Labels are just _0.png or _1.png etc
-    train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
-    val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
-    test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
-    
+    if dataset == "chestmnist":
+        # labels are multi-label test20092_0_0_0_0_1_0_0_0_0_0_0_0_0_0.png, remove the dirnames
+        train_labels = [list(map(int, path.split('_')[2:-1])) for path in train_image_paths]
+        train_labels.append([int(path.split('_')[-1].split('.')[0]) for path in train_image_paths])
+        
+        val_labels = [list(map(int, path.split('_')[2:-1])) for path in val_image_paths]
+        val_labels.append([int(path.split('_')[-1].split('.')[0]) for path in val_image_paths])
+
+        test_labels = [list(map(int, path.split('_')[2:-1])) for path in test_image_paths]
+        test_labels.append([int(path.split('_')[-1].split('.')[0]) for path in test_image_paths])
+    else:
+        # Labels are just _0.png or _1.png etc
+        train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
+        val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
+        test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
+
+    #print(train_labels[0])  
     # Construct the datasets
     full_train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
     val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
@@ -199,6 +212,7 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
         # generate a random tensor for now
         #embedding = torch.randn(512)
         embeddings.append(embedding)
+        print(f'label: {label}')
         labels.append(label)
     
     # Embeddings is a list of tensors, stack them and remove the batch dimension
@@ -324,31 +338,65 @@ def train_multi_label_classifier(features, labels):
     classifier.fit(features, labels)
     return classifier, scaler
 
-def evaluate_model(classifier, features, labels):
+def evaluate_model(classifier, features, labels, is_chestmnist=False):
     print("Evaluating model...")
-    predictions = classifier.predict(features)
-    return accuracy_score(labels, predictions)
+    print(f"Labels 0: {labels[0]}")
+
+    if is_chestmnist:
+        # ChestMNIST case: multi-label binary classification
+        y_score = classifier.predict_proba(features)
+        y_pred = (y_score > 0.5).astype(int)
+        
+        # Calculate accuracy
+        accuracy = accuracy_score(labels, y_pred)
+        print(f"Accuracy: {accuracy:.4f}")
+        
+        # Calculate per-class accuracy
+        per_class_accuracy = np.mean(labels == y_pred, axis=0)
+        for i, acc in enumerate(per_class_accuracy):
+            print(f"Accuracy for label {i}: {acc:.4f}")
+
+    else:
+        # Single-label case for other datasets
+        y_pred = classifier.predict(features)
+        avg_accuracy = accuracy_score(labels, y_pred)
+        print(f"Accuracy: {avg_accuracy:.4f}")
+
+    return avg_accuracy
 
 # method to compute AUC-ROC for binary or multi-class classification
-def compute_auc_roc(classifier, features, labels, num_classes):
+def compute_auc_roc(classifier, features, labels, num_classes, is_chestmnist=False):
     print("Computing AUC-ROC...")
-    if num_classes == 2:
-        predictions = classifier.predict_proba(features)[:, 1]
-        return roc_auc_score(labels, predictions)
+    
+    if is_chestmnist:
+        # ChestMNIST case: multi-label binary classification
+        y_score = classifier.predict_proba(features)
+        
+        # Compute AUC-ROC for each label
+        auc_scores = []
+        for i in range(labels.shape[1]):
+            auc = roc_auc_score(labels[:, i], y_score[:, i])
+            auc_scores.append(auc)
+        
+        avg_auc = np.mean(auc_scores)
+        print(f"Average AUC-ROC: {avg_auc:.4f}")
+        
+        for i, auc in enumerate(auc_scores):
+            print(f"AUC-ROC for label {i}: {auc:.4f}")
+
     else:
-        # use one-vs-all strategy
-        predictions = classifier.predict_proba(features)
-        return roc_auc_score(labels, predictions, multi_class='ovr')
+        # Single-label case for other datasets
+        if labels.ndim == 1:  # Binary classification
+            y_score = classifier.predict_proba(features)[:, 1]
+            avg_auc = roc_auc_score(labels, y_score)
+        else:  # Multi-class classification
+            y_score = classifier.predict_proba(features)
+            avg_auc = roc_auc_score(labels, y_score, multi_class='ovr')
+        
+        print(f"AUC-ROC: {avg_auc:.4f}")
+    
+    return avg_auc
 
-def evaluate_multi_label_model(classifier, features, labels):
-    print("Evaluating multi-label model...")
-    predictions = classifier.predict(features)
-    return accuracy_score(labels, predictions)
-
-def compute_auc_roc_multi_label(classifier, features, labels):
-    print("Computing AUC-ROC for multi-label classification...")
-    predictions = classifier.predict_proba(features)
-    return roc_auc_score(labels, predictions, average='micro')
 
 def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim):    
     # Load the data
@@ -372,12 +420,11 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     val_labels_np = val_labels_tensor.cpu().detach().numpy()
     val_embeddings_np = scaler.transform(val_embeddings_np)
 
-    if dataset == "chestmnist":
-        val_accuracy = evaluate_multi_label_model(classifier, val_embeddings_np, val_labels_np)
-        val_auc_roc = compute_auc_roc_multi_label(classifier, val_embeddings_np, val_labels_np)
-    else:
-        val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np)
-        val_auc_roc = compute_auc_roc(classifier, val_embeddings_np, val_labels_np, num_classes)
+    chestmnist = False
+    if dataset == "chestmnist": chestmnist = True
+        
+    val_accuracy = evaluate_model(classifier, val_embeddings_np, val_labels_np, is_chestmnist=chestmnist)
+    val_auc_roc = compute_auc_roc(classifier, val_embeddings_np, val_labels_np, num_classes, is_chestmnist=chestmnist)
 
     print(f"Validation Accuracy: {val_accuracy:.4f}")
     print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
@@ -388,12 +435,8 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     test_labels_np = test_labels_tensor.cpu().detach().numpy()
     test_embeddings_np = scaler.transform(test_embeddings_np)
 
-    if dataset == "chestmnist":
-        test_accuracy = evaluate_multi_label_model(classifier, test_embeddings_np, test_labels_np)
-        test_auc_roc = compute_auc_roc_multi_label(classifier, test_embeddings_np, test_labels_np)
-    else:
-        test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np)
-        test_auc_roc = compute_auc_roc(classifier, test_embeddings_np, test_labels_np, num_classes)
+    test_accuracy = evaluate_model(classifier, test_embeddings_np, test_labels_np, is_chestmnist=chestmnist)
+    test_auc_roc = compute_auc_roc(classifier, test_embeddings_np, test_labels_np, num_classes, is_chestmnist=chestmnist)
 
     print(f"Test Accuracy: {test_accuracy:.4f}")
     print(f"Test AUC-ROC: {test_auc_roc:.4f}")
