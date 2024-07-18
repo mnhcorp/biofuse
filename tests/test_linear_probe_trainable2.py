@@ -340,6 +340,16 @@ def compute_auc_roc(classifier, features, labels, num_classes):
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
 
+def evaluate_multi_label_model(classifier, features, labels):
+    print("Evaluating multi-label model...")
+    predictions = classifier.predict(features)
+    return accuracy_score(labels, predictions)
+
+def compute_auc_roc_multi_label(classifier, features, labels):
+    print("Computing AUC-ROC for multi-label classification...")
+    predictions = classifier.predict_proba(features)
+    return roc_auc_score(labels, predictions, average='micro')
+
 def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim):    
     # Load the data
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
