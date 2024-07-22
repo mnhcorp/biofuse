@@ -27,6 +27,12 @@ import torch.nn as nn
 PATIENCE = 25
 
 def set_seed(seed: int = 42) -> None:
+    """
+    Set seed for generating random numbers to ensure reproducibility.
+
+    Args:
+    - seed (int): seed value
+    """
     # Set seed that controls randomness related to PyTorch operations
     torch.manual_seed(seed)
 
@@ -49,6 +55,21 @@ def set_seed(seed: int = 42) -> None:
     os.environ['PYTHONHASHSEED'] = str(seed)
 
 class LogisticRegression2(nn.Module):
+    """
+    Implements a logistic regression model using a linear layer.
+
+    This model is a simple linear classifier that maps input features
+    to output classes without applying a non-linear activation function
+    like sigmoid or softmax in the forward pass. It's primarily used for
+    binary classification tasks.
+
+    Attributes:
+        linear (nn.Linear): The linear transformation layer.
+
+    Parameters:
+        input_dim (int): Dimensionality of the input features.
+        output_dim (int): Number of output classes.
+    """
     def __init__(self, input_dim, output_dim):
         super(LogisticRegression2, self).__init__()
         self.linear = nn.Linear(input_dim, output_dim)
@@ -58,6 +79,21 @@ class LogisticRegression2(nn.Module):
         return self.linear(x)
     
 class MLPClassifier(nn.Module):
+    """
+    Implements a Multi-Layer Perceptron (MLP) for classification.
+
+    This model consists of a simple feedforward neural network with one
+    hidden layer and a ReLU activation function. It can be used for binary
+    or multi-class classification tasks.
+
+    Attributes:
+        mlp (nn.Sequential): The sequential container of layers forming the MLP.
+
+    Parameters:
+        input_dim (int): Dimensionality of the input features.
+        hidden_dim (int): Number of neurons in the hidden layer.
+        output_dim (int): Number of output classes, typically 1 for binary classification.
+    """
     def __init__(self, input_dim=1, hidden_dim=64, output_dim=1): # Assuming binary classification
         super(MLPClassifier, self).__init__()
         self.mlp = nn.Sequential(
@@ -72,6 +108,15 @@ class MLPClassifier(nn.Module):
         return self.mlp(x)
 
 def custom_collate_fn(batch):
+    """
+    Custom collate function for handling batches in data loading.
+
+    Args:
+        batch (list): A list of tuples containing image and label pairs.
+
+    Returns:
+        tuple: A tuple containing a list of images and a tensor of labels.
+    """
     # Filter out None values
     batch = [(img, label) for img, label in batch if img is not None]
     
@@ -82,17 +127,32 @@ def custom_collate_fn(batch):
     return list(images), torch.tensor(labels)
 
 def load_data(dataset, img_size, train=True):
+    """
+    Load data for a given dataset.
+
+    Args:
+        dataset (str): The name of the dataset.
+        img_size (int): The desired image size.
+        train (bool, optional): Whether to load the training data. Defaults to True.
+
+    Returns:
+        tuple: A tuple containing the training data loader, validation data loader, test data loader, and the number of classes.
+    """
     print(f"Loading data for {dataset}...")
     
+    # Get dataset information
     info = INFO[dataset]
     num_classes = len(info['label'])
 
+    # Get the data class based on the dataset name
     DataClass = getattr(medmnist, info['python_class'])
     
+    # Load the datasets
     train_dataset = DataClass(split='train', download=True, size=img_size, root='/data/medmnist')
     val_dataset = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')
     test_dataset = DataClass(split='test', download=True, size=img_size, root='/data/medmnist')
     
+    # Set the image paths based on the image size
     if img_size == 28:
         train_images_path = f'/data/medmnist/{dataset}_train/{dataset}'
         val_images_path = f'/data/medmnist/{dataset}_val/{dataset}'
@@ -102,6 +162,7 @@ def load_data(dataset, img_size, train=True):
         val_images_path = f'/data/medmnist/{dataset}_val/{dataset}_{img_size}'
         test_images_path = f'/data/medmnist/{dataset}_test/{dataset}_{img_size}'
 
+    # Save the datasets if the image paths don't exist
     if not os.path.exists(train_images_path):
         train_dataset.save(f'/data/medmnist/{dataset}_train')
     
@@ -111,12 +172,12 @@ def load_data(dataset, img_size, train=True):
     if not os.path.exists(test_images_path):
         test_dataset.save(f'/data/medmnist/{dataset}_test')
     
-    # Construct image paths, glob directory
+    # Construct image paths by globbing the directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
     test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
-    # Labels are just _0.png or _1.png etc
+    # Extract labels from image paths
     train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
     val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
     test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
@@ -126,7 +187,7 @@ def load_data(dataset, img_size, train=True):
     val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
     test_dataset = BioFuseImageDataset(test_image_paths, test_labels)
 
-    # Function to get balanced subset
+    # Function to get a balanced subset of the dataset
     def get_balanced_subset(dataset, num_samples):
         class_counts = {}
         for _, label in dataset:
@@ -154,6 +215,7 @@ def load_data(dataset, img_size, train=True):
     print(f"Number of validation images: {len(val_dataset)}")
     print(f"Number of test images: {len(test_dataset)}")
 
+    # Create data loaders
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
@@ -161,23 +223,54 @@ def load_data(dataset, img_size, train=True):
     return train_loader, val_loader, test_loader, num_classes
 
 def extract_features(dataloader, biofuse_model):
+    """
+    Extracts features from the given dataloader using the provided biofuse_model.
+
+    Args:
+        dataloader (torch.utils.data.DataLoader): The dataloader containing the images 
+        and labels. biofuse_model (torch.nn.Module): The biofuse model used for feature extraction.
+
+    Returns:
+        tuple: A tuple containing two numpy arrays. The first array contains the 
+        extracted features, and the second array contains the corresponding labels.
+    """
     print("Extracting features...")
     features = []
     labels = []    
     # use progress bar
     for image, label in tqdm(dataloader):
         embedding = biofuse_model(image)
-        #features.append(embedding.squeeze(0).numpy())
         features.append(embedding.squeeze(0).detach().numpy())
         labels.append(label.numpy())
    
     return np.array(features), np.array(labels)
     
 def print_cuda_mem_stats():
+    """
+    Prints the current CUDA memory statistics.
+
+    This function prints the amount of memory allocated and reserved on the CUDA device.
+    """
     print(f"Allocated: {torch.cuda.memory_allocated() / 1024 ** 2:.0f} MB")
     print(f"Reserved: {torch.cuda.memory_reserved() / 1024 ** 2:.0f} MB")
 
 def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, is_training=True, is_test=False, progress_bar=False):
+    """
+    Generate embeddings for a given dataloader using a BioFuse model.
+
+    Args:
+        dataloader (torch.utils.data.DataLoader): The dataloader containing the input data.
+        biofuse_model (torch.nn.Module): The BioFuse model used for generating embeddings.
+        cache_raw_embeddings (bool, optional): Whether to cache raw embeddings during training. Defaults to False.
+        is_training (bool, optional): Whether the model is in training mode. Defaults to True.
+        is_test (bool, optional): Whether the embeddings are generated for testing. Defaults to False.
+        progress_bar (bool, optional): Whether to display a progress bar. Defaults to False.
+
+    Returns:
+        torch.Tensor: The generated embeddings.
+        torch.Tensor: The corresponding labels.
+    """
+    
     embeddings = []
     labels = []    
 
@@ -207,6 +300,15 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
     return embeddings_tensor, labels_tensor
 
 def print_trainable_parameters(model):
+    """
+    Prints the trainable parameters of the given model.
+
+    Args:
+        model: The model whose trainable parameters need to be printed.
+
+    Returns:
+        None
+    """
     print("Trainable parameters:")
     for name, param in model.named_parameters():   
         if param.requires_grad:
@@ -214,6 +316,17 @@ def print_trainable_parameters(model):
             print(name, param.numel())
 
 def log_projection_layer_weights(model, epoch, stage):
+    """
+    Logs the weights of the projection layers in the model.
+
+    Args:
+        model (nn.Module): The model containing the projection layers.
+        epoch (int): The current epoch number.
+        stage (str): The current stage of training.
+
+    Returns:
+        None
+    """
     for i, layer in enumerate(model.projection_layers):
         print(f"Epoch [{epoch}] - {stage} - Projection Layer {i} Weights:")
         for name, param in layer.named_parameters():  # Iterate through MLP parameters
@@ -221,6 +334,17 @@ def log_projection_layer_weights(model, epoch, stage):
             print(f"  - {name}: {weights.mean().item():.6f} ± {weights.std().item():.6f}")
 
 def log_projection_layer_gradients(model, epoch, stage):
+    """
+    Logs the gradients of the projection layers in the model.
+
+    Args:
+        model (nn.Module): The model containing the projection layers.
+        epoch (int): The current epoch number.
+        stage (str): The current stage of training.
+
+    Returns:
+        None
+    """
     for i, layer in enumerate(model.projection_layers):
         print(f"Epoch [{epoch}] - {stage} - Projection Layer {i} Gradients:")
         for name, param in layer.named_parameters():  # Iterate through MLP parameters
@@ -231,6 +355,17 @@ def log_projection_layer_gradients(model, epoch, stage):
                 print(f"  - {name}: None")
 
 def train_classifier(features, labels, num_classes):
+    """
+    Trains a logistic regression classifier on the given features and labels.
+
+    Args:
+        features (array-like): The input features for training the classifier.
+        labels (array-like): The target labels for training the classifier.
+        num_classes (int): The number of classes in the classification problem.
+
+    Returns:
+        tuple: A tuple containing the trained classifier and the scaler used for feature scaling.
+    """
     print("Training classifier...")
 
     scaler = StandardScaler()
@@ -250,6 +385,17 @@ def train_classifier(features, labels, num_classes):
     return classifier, scaler
 
 def train_classifier2(features, labels, num_classes):
+    """
+    Trains an XGBoost classifier using the provided features and labels.
+
+    Args:
+        features (array-like): The input features for training the classifier.
+        labels (array-like): The corresponding labels for the input features.
+        num_classes (int): The number of classes in the classification problem.
+
+    Returns:
+        None
+    """
     print("Training XGBoost classifier...")
 
     scaler = StandardScaler()
@@ -280,37 +426,35 @@ def train_classifier2(features, labels, num_classes):
     classifier.fit(features, labels)
     return classifier, scaler
 
-def train_classifier3(features, labels, num_classes):
-    print("Training ordinal regression classifier...")
-
-    scaler = StandardScaler()
-    
-    # Scale features
-    features = scaler.fit_transform(features)
-
-    # Encode labels for ordinal regression
-    encoder = OrdinalEncoder()
-    labels = encoder.fit_transform(labels.reshape(-1, 1)).ravel()
-
-    # multi-class classification using xgboost
-    classifier = xgb.XGBClassifier(
-        objective='multi:softprob',
-        num_class=len(encoder.categories_[0]),
-        n_estimators=100,
-        learning_rate=0.1,        
-        eval_metric='mlogloss'
-    )
-
-    classifier.fit(features, labels)
-    return classifier, scaler
-
 def evaluate_model(classifier, features, labels):
+    """
+    Evaluates the classifier on the given features and labels.
+
+    Args:
+    - classifier: The trained classifier.
+    - features: The input features for evaluation.
+    - labels: The target labels for evaluation.
+
+    Returns:
+    - float: The accuracy of the classifier on the given features and labels.
+    """
     print("Evaluating model...")
     predictions = classifier.predict(features)
     return accuracy_score(labels, predictions)
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes):
+    """
+    Computes the Area Under the Receiver Operating Characteristic Curve (AUC-ROC) for the classifier.
+
+    Args:
+    - classifier: The trained classifier.
+    - features: The input features for evaluation.
+    - labels: The target labels for evaluation.
+
+    Returns:
+    - float: The AUC-ROC score of the classifier on the given features and labels.
+    """
     print("Computing AUC-ROC...")
     if num_classes == 2:
         predictions = classifier.predict_proba(features)[:, 1]
@@ -320,7 +464,24 @@ def compute_auc_roc(classifier, features, labels, num_classes):
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
 
-def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim):    
+def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim): 
+    """
+    Standalone evaluation of the BioFuse model on the validation and test sets.
+
+    Args:
+    - dataset: The name of the dataset.
+    - img_size: The image size.
+    - biofuse: The trained BioFuse model.
+    - models: The list of pre-trained models used in the BioFuse model.
+    - fusion_method: The fusion method used in the BioFuse model.
+    - projection_dim: The dimension of the projection layer.
+
+    Returns:
+    - float: The validation accuracy.
+    - float: The validation AUC-ROC score.
+    - float: The test accuracy.
+    - float: The test AUC-ROC score.
+    """   
     # Load the data
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
 
@@ -362,18 +523,25 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
         
 # Training the model with validation-informed adjustment
 def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusion_method, fast_run):
+    """
+    Trains the BioFuse model on the given dataset.
+
+    Args:
+    - dataset: The name of the dataset.
+    - model_names: The list of pre-trained models used in the BioFuse model.
+    - num_epochs: The number of training epochs.
+    - img_size: The image size.
+    - projection_dim: The dimension of the projection layer.
+    - fusion_method: The fusion method used in the BioFuse model.
+    - fast_run: Whether to run the training in fast mode.
+
+    Returns:
+    - None
+    """
     set_seed(42)
 
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)
-    #sys.exit(0)
 
-    #model_names = ["CheXagent"] # CheXagent needs a bigger GPU :/
-    #model_names =  ["rad-dino"] 
-    #model_names =  ["BioMedCLIP"]
-    #model_names = ["PubMedCLIP"]
-    #model_names = ["BioMedCLIP", "PubMedCLIP", "rad-dino", "CheXagent"]
-    #model_names = ["BioMedCLIP", "rad-dino"]
-    #model_names = ["UNI"]
     print("Model names: ", model_names)
     print("Fusion method: ", fusion_method)
     print("Projection dim: ", projection_dim)
@@ -510,6 +678,24 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
 
 
 def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc):
+    """
+    Appends the results to a CSV file.
+
+    Args:
+    - dataset: The name of the dataset.
+    - img_size: The image size.
+    - model_names: The list of pre-trained models used in the BioFuse model.
+    - fusion_method: The fusion method used in the BioFuse model.
+    - projection_dim: The dimension of the projection layer.
+    - epochs: The number of training epochs.
+    - val_accuracy: The validation accuracy.
+    - val_auc: The validation AUC-ROC score.
+    - test_accuracy: The test accuracy.
+    - test_auc: The test AUC-ROC score.
+
+    Returns:
+    - None
+    """
     file_path = f"results_{dataset}_{img_size}.csv"
     file_exists = os.path.isfile(file_path)
 
