@@ -101,11 +101,11 @@ def load_data(dataset, img_size, train=True):
     info = INFO[dataset]
     num_classes = len(info['label'])
 
-    # DataClass = getattr(medmnist, info['python_class'])
+    DataClass = getattr(medmnist, info['python_class'])
     
-    # train_dataset = DataClass(split='train', download=False, size=img_size, root='/data/medmnist')
-    # val_dataset = DataClass(split='val', download=False, size=img_size, root='/data/medmnist')
-    # test_dataset = DataClass(split='test', download=False, size=img_size, root='/data/medmnist')
+    train_dataset = DataClass(split='train', download=False, size=img_size, root='/data/medmnist')
+    val_dataset = DataClass(split='val', download=False, size=img_size, root='/data/medmnist')
+    test_dataset = DataClass(split='test', download=False, size=img_size, root='/data/medmnist')
     
     if img_size == 28:
         train_images_path = f'/data/medmnist/{dataset}_train/{dataset}'
@@ -116,14 +116,14 @@ def load_data(dataset, img_size, train=True):
         val_images_path = f'/data/medmnist/{dataset}_val/{dataset}_{img_size}'
         test_images_path = f'/data/medmnist/{dataset}_test/{dataset}_{img_size}'
 
-    # if not os.path.exists(train_images_path):
-    #     train_dataset.save(f'/data/medmnist/{dataset}_train')
+    if not os.path.exists(train_images_path):
+        train_dataset.save(f'/data/medmnist/{dataset}_train')
     
-    # if not os.path.exists(val_images_path):
-    #     val_dataset.save(f'/data/medmnist/{dataset}_val')
+    if not os.path.exists(val_images_path):
+        val_dataset.save(f'/data/medmnist/{dataset}_val')
     
-    # if not os.path.exists(test_images_path):
-    #     test_dataset.save(f'/data/medmnist/{dataset}_test')
+    if not os.path.exists(test_images_path):
+        test_dataset.save(f'/data/medmnist/{dataset}_test')
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
