@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from sklearn.linear_model import LogisticRegression
+from sklearn.multiclass import OneVsRestClassifier
 from medmnist import BreastMNIST
 import xgboost as xgb
 # progressbar
@@ -78,8 +79,21 @@ def custom_collate_fn(batch):
     if len(batch) == 0:
         return [], torch.tensor([])
 
-    images, labels = zip(*batch)
+    images, labels = zip(*batch)    
+    #print(f'labels: {labels}')
     return list(images), torch.tensor(labels)
+
+def parse_labels_from_path(path):
+    filename = os.path.basename(path)
+    parts = filename.split('_')
+    
+    # Extract all parts after the first one (train16672)
+    label_part = parts[1:]
+    
+    # For the last part, remove the file extension
+    label_part[-1] = label_part[-1].split('.')[0]
+    
+    return [int(label) for label in label_part]
 
 def load_data(dataset, img_size, train=True):
     print(f"Loading data for {dataset}...")
@@ -87,11 +101,11 @@ def load_data(dataset, img_size, train=True):
     info = INFO[dataset]
     num_classes = len(info['label'])
 
-    DataClass = getattr(medmnist, info['python_class'])
+    # DataClass = getattr(medmnist, info['python_class'])
     
-    train_dataset = DataClass(split='train', download=False, size=img_size, root='/data/medmnist')
-    val_dataset = DataClass(split='val', download=False, size=img_size, root='/data/medmnist')
-    test_dataset = DataClass(split='test', download=False, size=img_size, root='/data/medmnist')
+    # train_dataset = DataClass(split='train', download=False, size=img_size, root='/data/medmnist')
+    # val_dataset = DataClass(split='val', download=False, size=img_size, root='/data/medmnist')
+    # test_dataset = DataClass(split='test', download=False, size=img_size, root='/data/medmnist')
     
     if img_size == 28:
         train_images_path = f'/data/medmnist/{dataset}_train/{dataset}'
@@ -102,38 +116,31 @@ def load_data(dataset, img_size, train=True):
         val_images_path = f'/data/medmnist/{dataset}_val/{dataset}_{img_size}'
         test_images_path = f'/data/medmnist/{dataset}_test/{dataset}_{img_size}'
 
-    if not os.path.exists(train_images_path):
-        train_dataset.save(f'/data/medmnist/{dataset}_train')
+    # if not os.path.exists(train_images_path):
+    #     train_dataset.save(f'/data/medmnist/{dataset}_train')
     
-    if not os.path.exists(val_images_path):
-        val_dataset.save(f'/data/medmnist/{dataset}_val')
+    # if not os.path.exists(val_images_path):
+    #     val_dataset.save(f'/data/medmnist/{dataset}_val')
     
-    if not os.path.exists(test_images_path):
-        test_dataset.save(f'/data/medmnist/{dataset}_test')
+    # if not os.path.exists(test_images_path):
+    #     test_dataset.save(f'/data/medmnist/{dataset}_test')
     
     # Construct image paths, glob directory
     train_image_paths = glob.glob(f'{train_images_path}/*.png')
-    print(train_image_paths[0])
+    #print(train_image_paths[0])
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
     test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
     if dataset == "chestmnist":
-        # labels are multi-label test20092_0_0_0_0_1_0_0_0_0_0_0_0_0_0.png, remove the dirnames
-        train_labels = [list(map(int, path.split('_')[2:-1])) for path in train_image_paths]
-        train_labels.append([int(path.split('_')[-1].split('.')[0]) for path in train_image_paths])
-        
-        val_labels = [list(map(int, path.split('_')[2:-1])) for path in val_image_paths]
-        val_labels.append([int(path.split('_')[-1].split('.')[0]) for path in val_image_paths])
-
-        test_labels = [list(map(int, path.split('_')[2:-1])) for path in test_image_paths]
-        test_labels.append([int(path.split('_')[-1].split('.')[0]) for path in test_image_paths])
+        train_labels = [parse_labels_from_path(path) for path in train_image_paths]
+        val_labels = [parse_labels_from_path(path) for path in val_image_paths]
+        test_labels = [parse_labels_from_path(path) for path in test_image_paths]        
     else:
         # Labels are just _0.png or _1.png etc
         train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
         val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
         test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
 
-    #print(train_labels[0])  
     # Construct the datasets
     full_train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
     val_dataset = BioFuseImageDataset(val_image_paths, val_labels)
@@ -168,14 +175,17 @@ def load_data(dataset, img_size, train=True):
         
         return Subset(dataset, balanced_indices)
 
-    train = True
-    if train and len(full_train_dataset) > 5000:
-        # Get balanced subsets
-        train_dataset = get_balanced_subset(full_train_dataset, 500)
-        val_dataset = get_balanced_subset(val_dataset, 100)
-        test_dataset = get_balanced_subset(test_dataset, 100)
-    else:
-        train_dataset = full_train_dataset
+    # train = True
+    # if train and len(full_train_dataset) > 5000:
+    #     # Get balanced subsets
+    #     # train_dataset = get_balanced_subset(full_train_dataset, 500)
+    #     # val_dataset = get_balanced_subset(val_dataset, 100)
+    #     # test_dataset = get_balanced_subset(test_dataset, 100)
+    #     train_dataset = Subset(full_train_dataset, range(500))
+    #     val_dataset = Subset(val_dataset, range(100))
+    #     test_dataset = Subset(test_dataset, range(100))
+    # else:
+    train_dataset = full_train_dataset
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
@@ -225,12 +235,16 @@ def generate_embeddings(dataloader, biofuse_model, cache_raw_embeddings=False, i
         # generate a random tensor for now
         #embedding = torch.randn(512)
         embeddings.append(embedding)
-        print(f'label: {label}')
+        #print(f'label: {label}')
+        #print(f'shape of label: {label.shape}')
         labels.append(label)
     
     # Embeddings is a list of tensors, stack them and remove the batch dimension
     embeddings_tensor = torch.stack(embeddings).squeeze(1)
-    labels_tensor = torch.tensor(labels)        
+    #print(f'label: {labels}')
+    labels_tensor = torch.cat(labels, dim=0)
+    #labels_tensor = torch.tensor(labels)
+
     
     return embeddings_tensor, labels_tensor
 
@@ -266,13 +280,9 @@ def train_classifier(features, labels, num_classes):
     # Scale features
     features = scaler.fit_transform(features)
 
-    if num_classes > 2:
-        if len(features) < 1000:
-            classifier = LogisticRegression(max_iter=1000, solver='liblinear', multi_class='ovr')
-        else:
-            classifier = LogisticRegression(max_iter=1000, solver='lbfgs', multi_class='multinomial')
-    else:
-        classifier = LogisticRegression(max_iter=1000, solver='liblinear')
+    #base_clf = LogisticRegression(max_iter=1000, solver='liblinear')
+    base_clf = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+    classifier = OneVsRestClassifier(base_clf)
 
     classifier.fit(features, labels)
     return classifier, scaler
@@ -353,73 +363,43 @@ def train_multi_label_classifier(features, labels):
 
 def evaluate_model(classifier, features, labels, is_chestmnist=False):
     print("Evaluating model...")
-    print(f"Labels 0: {labels[0]}")
-
-    if is_chestmnist:
-        # ChestMNIST case: multi-label binary classification
-        y_score = classifier.predict_proba(features)
-        y_pred = (y_score > 0.5).astype(int)
-        
-        # Calculate accuracy
-        accuracy = accuracy_score(labels, y_pred)
-        print(f"Accuracy: {accuracy:.4f}")
-        
-        # Calculate per-class accuracy
-        per_class_accuracy = np.mean(labels == y_pred, axis=0)
-        for i, acc in enumerate(per_class_accuracy):
-            print(f"Accuracy for label {i}: {acc:.4f}")
-
-    else:
-        # Single-label case for other datasets
-        y_pred = classifier.predict(features)
-        avg_accuracy = accuracy_score(labels, y_pred)
-        print(f"Accuracy: {avg_accuracy:.4f}")
-
+    
+    threshold = 0.5
+    y_score = np.array(classifier.predict(features))
+    y_pred = y_score > threshold
+    acc = 0
+    for i in range(labels.shape[1]):
+        acc += accuracy_score(labels[:, i], y_pred[:, i])
+    avg_accuracy = acc / labels.shape[1]
+    
     return avg_accuracy
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes, is_chestmnist=False):
     print("Computing AUC-ROC...")
     
-    if is_chestmnist:
-        # ChestMNIST case: multi-label binary classification
-        y_score = classifier.predict_proba(features)
-        
-        # Compute AUC-ROC for each label
-        auc_scores = []
-        for i in range(labels.shape[1]):
+    y_score = np.array(classifier.predict_proba(features))    
+    auc_scores = []
+    for i in range(labels.shape[1]):
+        if len(np.unique(labels[:, i])) > 1:
             auc = roc_auc_score(labels[:, i], y_score[:, i])
             auc_scores.append(auc)
-        
-        avg_auc = np.mean(auc_scores)
-        print(f"Average AUC-ROC: {avg_auc:.4f}")
-        
-        for i, auc in enumerate(auc_scores):
-            print(f"AUC-ROC for label {i}: {auc:.4f}")
-
-    else:
-        # Single-label case for other datasets
-        if labels.ndim == 1:  # Binary classification
-            y_score = classifier.predict_proba(features)[:, 1]
-            avg_auc = roc_auc_score(labels, y_score)
-        else:  # Multi-class classification
-            y_score = classifier.predict_proba(features)
-            avg_auc = roc_auc_score(labels, y_score, multi_class='ovr')
-        
-        print(f"AUC-ROC: {avg_auc:.4f}")
+    avg_auc = np.mean(auc_scores)
     
     return avg_auc
 
 
-def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim):    
+def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projection_dim, train_dataloader, val_dataloader, test_dataloader, num_classes):   
     # Load the data
-    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
+    #train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, train=False)
 
     # Extract features from the training set
     embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse, progress_bar=True)
 
     # convert to numpy
     embeddings_np = embeddings_tensor.cpu().detach().numpy()
+    # reshape labels_tensor
+    labels_tensor = labels_tensor.view(-1, 14)
     labels_np = labels_tensor.cpu().detach().numpy()
 
     if dataset == "chestmnist":
@@ -430,6 +410,7 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     # Validation set evaluation
     val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse, progress_bar=True, is_training=False)
     val_embeddings_np = val_embeddings_tensor.cpu().detach().numpy()
+    val_labels_tensor = val_labels_tensor.view(-1, 14)
     val_labels_np = val_labels_tensor.cpu().detach().numpy()
     val_embeddings_np = scaler.transform(val_embeddings_np)
 
@@ -445,6 +426,7 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     # Test set evaluation
     test_embeddings_tensor, test_labels_tensor = generate_embeddings(test_dataloader, biofuse, progress_bar=True, is_test=True)
     test_embeddings_np = test_embeddings_tensor.cpu().detach().numpy()
+    test_labels_tensor = test_labels_tensor.view(-1, 14)
     test_labels_np = test_labels_tensor.cpu().detach().numpy()
     test_embeddings_np = scaler.transform(test_embeddings_np)
 
@@ -513,7 +495,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     #classifier = MLPClassifier(input_dim, hidden_dim=64, output_dim=output_dim)
 
     optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.004)
-    if num_classes == 2:
+    if num_classes == 2 or dataset == "chestmnist":
         criterion = nn.BCEWithLogitsLoss()
     else:
         criterion = nn.CrossEntropyLoss()
@@ -534,12 +516,16 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
 
         # Compute embeddings and labels
         embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse_model)
+        #print(f'labels_tensor: {labels_tensor}')
+        #print(f'shape: {labels_tensor.shape}')
+        #print(f'device: {labels_tensor.device}')
         labels_tensor = labels_tensor.to("cuda")
+        labels_tensor = labels_tensor.view(-1, 14)
        
         # Train classifier
         logits = classifier(embeddings_tensor)        
-        if num_classes == 2:
-            loss = criterion(logits, labels_tensor.unsqueeze(1).float())
+        if num_classes == 2 or dataset == "chestmnist":
+            loss = criterion(logits, labels_tensor.float())
         else:
             loss = criterion(logits, labels_tensor)
         loss.backward()            
@@ -556,12 +542,13 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
         # Features for the validation set
         val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse_model, is_training=False)
         val_labels_tensor = val_labels_tensor.to("cuda")
+        val_labels_tensor = val_labels_tensor.view(-1, 14)
 
         with torch.no_grad():
             val_logits = classifier(val_embeddings_tensor)
             
-            if num_classes == 2:
-                val_loss = criterion(val_logits, val_labels_tensor.unsqueeze(1).float())
+            if num_classes == 2 or dataset == "chestmnist":
+                val_loss = criterion(val_logits, val_labels_tensor.float())
                 val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
             else:
                 val_loss = criterion(val_logits, val_labels_tensor)
@@ -601,7 +588,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusi
     print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")       
 
     # Evaluate on validation and test sets
-    val_accuracy, val_auc, test_accuracy, test_auc = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim)
+    val_accuracy, val_auc, test_accuracy, test_auc = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim, train_dataloader, val_dataloader, test_dataloader, num_classes)
 
     append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, val_auc, test_accuracy, test_auc)
 
