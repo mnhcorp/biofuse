@@ -55,7 +55,9 @@ class BioFuseModel(nn.Module):
             "Prov-GigaPath": 1536,
             "PubMedCLIP": 512,
             "rad-dino": 768,
-            "UNI": 1024
+            "UNI": 1024,
+            "Prov-GigaPath": 1536,
+            "Hibou-B": 768,
         }
         return model_dims.get(model_name, 512)
 
@@ -96,8 +98,11 @@ class BioFuseModel(nn.Module):
 
         # Print size of the cache to check if it is growing
         #print("Size of cache: ", sum([len(cache[model]) for model in self.models]))
+
+        # print eh size of the raw embeddings
+        #print("Size of raw embeddings: ", [embedding.size() for embedding in raw_embeddings])
         
-        # remove the first dimension from the embeddings if it is 1
+        # remove the batch dimension from the embeddings
         raw_embeddings = [embedding.squeeze(0) for embedding in raw_embeddings]
 
         embeddings = [projection(raw_embedding) for raw_embedding, projection in zip(raw_embeddings, self.projection_layers)]
@@ -122,9 +127,18 @@ class BioFuseModel(nn.Module):
         elif self.fusion_method == 'ifusion':
             fused_embedding = self._ifusion(embeddings)
         elif self.fusion_method == 'self_attention':
-            stacked_embeddings = torch.stack(embeddings, dim=1)  # [batch_size, num_models, embedding_dim]
+            # Add the batch dimension to the embeddings
+            embeddings = [embedding.unsqueeze(0) for embedding in embeddings]
+
+            # Stack the embeddings along the model dimension, to get [batch_size, num_models, embedding_dim]
+            stacked_embeddings = torch.stack(embeddings, dim=1)
+            
+            # Self-attention, Q, K, V are all the same in the shape [batch_size, num_models, embedding_dim]
+            # See: https://pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html
             attn_output, _ = self.attention(stacked_embeddings, stacked_embeddings, stacked_embeddings)
-            fused_embedding = self.layer_norm(attn_output.mean(dim=1))  # Average over models
+
+            # Average over the models
+            fused_embedding = self.layer_norm(attn_output.mean(dim=1))
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
 
@@ -161,6 +175,7 @@ class BioFuseModel(nn.Module):
         elif self.fusion_method == 'ifusion':
             fused_embedding = self._ifusion(embeddings)
         elif self.fusion_method == 'self_attention':
+            embeddings = [embedding.unsqueeze(0) for embedding in embeddings]
             stacked_embeddings = torch.stack(embeddings, dim=1)  # [batch_size, num_models, embedding_dim]
             attn_output, _ = self.attention(stacked_embeddings, stacked_embeddings, stacked_embeddings)
             fused_embedding = self.layer_norm(attn_output.mean(dim=1))  # Average over models
