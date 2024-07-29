@@ -1,0 +1,19 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC
+chestmnist,224,BioMedCLIP,concat,0,1,0.948,0.741,0.946,0.740
+chestmnist,224,rad-dino,concat,0,1,0.949,0.798,0.947,0.792
+chestmnist,224,PubMedCLIP,concat,0,1,0.947,0.696,0.946,0.703
+chestmnist,224,"BioMedCLIP,rad-dino",concat,0,1,0.948,0.803,0.946,0.796
+chestmnist,224,"BioMedCLIP,PubMedCLIP",concat,0,1,0.948,0.749,0.946,0.747
+chestmnist,224,"rad-dino,PubMedCLIP",concat,0,1,0.948,0.798,0.947,0.792
+chestmnist,224,"BioMedCLIP,rad-dino,PubMedCLIP",concat,0,1,0.948,0.804,0.947,0.800
+chestmnist,224,CONCH,concat,0,1,0.947,0.684,0.946,0.686
+chestmnist,224,Prov-GigaPath,concat,0,1,0.948,0.724,0.946,0.726
+chestmnist,224,Hibou-B,concat,0,1,0.947,0.697,0.946,0.698
+chestmnist,224,UNI,concat,0,1,0.948,0.722,0.946,0.723
+chestmnist,224,"BioMedCLIP,UNI",concat,0,1,0.948,0.757,0.946,0.757
+chestmnist,224,"rad-dino,UNI",concat,0,1,0.948,0.797,0.947,0.793
+chestmnist,224,"PubMedCLIP,UNI",concat,0,1,0.948,0.727,0.946,0.733
+chestmnist,224,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.948,0.803,0.947,0.797
+chestmnist,224,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.948,0.755,0.946,0.760
+chestmnist,224,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.949,0.799,0.947,0.793
+chestmnist,224,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.949,0.801,0.947,0.799

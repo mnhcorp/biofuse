@@ -16,3 +16,4 @@ pathmnist,224,"PubMedCLIP,UNI",concat,0,1,0.995,1.000,0.973,0.996
 pathmnist,224,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.996,1.000,0.972,0.995
 pathmnist,224,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.995,1.000,0.973,0.995
 pathmnist,224,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.995,1.000,0.973,0.996
+pathmnist,224,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.995,1.000,0.973,0.995

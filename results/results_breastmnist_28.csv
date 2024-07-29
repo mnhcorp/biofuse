@@ -17,3 +17,6 @@ breastmnist,28,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.872,0.888,0.833,0.888
 breastmnist,28,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.872,0.901,0.840,0.888
 breastmnist,28,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.846,0.888,0.846,0.878
 breastmnist,28,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.833,0.870,0.853,0.872
+breastmnist,28,BioMedCLIP,concat,0,45,0.846,0.876,0.865,0.883
+breastmnist,28,BioMedCLIP,concat,0,1,0.846,0.876,0.865,0.883
+breastmnist,28,BioMedCLIP,concat,512,40,0.846,0.901,0.859,0.928
