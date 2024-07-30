@@ -17,3 +17,16 @@ organcmnist,224,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.957,0.999,0.860,0.990
 organcmnist,224,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.957,0.999,0.858,0.990
 organcmnist,224,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.950,0.999,0.845,0.989
 organcmnist,224,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.959,0.999,0.864,0.991
+organcmnist,224,"PubMedCLIP,Prov-GigaPath,Hibou-B,CONCH,UNI,BioMedCLIP,rad-dino",concat,1024,97,0.967,0.999,0.889,0.993
+organcmnist,224,"PubMedCLIP,Prov-GigaPath,Hibou-B,CONCH,UNI,BioMedCLIP,rad-dino",concat,2048,97,0.967,1.000,0.891,0.993
+organcmnist,224,"PubMedCLIP,Prov-GigaPath,Hibou-B,CONCH,UNI,BioMedCLIP,rad-dino",ifusion,1024,100,0.965,1.000,0.888,0.993
+organcmnist,224,"PubMedCLIP,Prov-GigaPath,Hibou-B,CONCH,UNI,BioMedCLIP,rad-dino",ifusion,2048,76,0.965,0.999,0.884,0.993
+organcmnist,224,"rad-dino,PubMedCLIP,BioMedCLIP",concat,1024,100,0.960,0.999,0.878,0.991
+organcmnist,224,"rad-dino,PubMedCLIP,BioMedCLIP",concat,2048,85,0.955,0.999,0.877,0.991
+organcmnist,224,"rad-dino,PubMedCLIP,BioMedCLIP",ifusion,1024,79,0.956,0.999,0.873,0.991
+organcmnist,224,"rad-dino,PubMedCLIP,BioMedCLIP",ifusion,2048,100,0.954,0.999,0.882,0.991
+organcmnist,224,"Prov-GigaPath,CONCH,UNI,Hibou-B",concat,1024,100,0.952,0.999,0.864,0.990
+organcmnist,224,"Prov-GigaPath,CONCH,UNI,Hibou-B",concat,2048,100,0.954,0.999,0.865,0.990
+organcmnist,224,"Prov-GigaPath,CONCH,UNI,Hibou-B",ifusion,1024,100,0.947,0.999,0.858,0.990
+organcmnist,224,"Prov-GigaPath,CONCH,UNI,Hibou-B",ifusion,2048,100,0.957,0.999,0.864,0.990
+organcmnist,224,"rad-dino,PubMedCLIP,UNI",concat,1024,100,0.952,0.999,0.859,0.990

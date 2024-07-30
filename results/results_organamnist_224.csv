@@ -17,3 +17,6 @@ organamnist,224,"BioMedCLIP,rad-dino,UNI",concat,0,1,0.956,0.999,0.901,0.993
 organamnist,224,"BioMedCLIP,PubMedCLIP,UNI",concat,0,1,0.962,0.999,0.912,0.995
 organamnist,224,"rad-dino,PubMedCLIP,UNI",concat,0,1,0.957,0.999,0.905,0.994
 organamnist,224,"BioMedCLIP,rad-dino,PubMedCLIP,UNI",concat,0,1,0.965,0.999,0.913,0.995
+organamnist,224,"PubMedCLIP,Prov-GigaPath,Hibou-B,CONCH,UNI,BioMedCLIP,rad-dino",concat,1024,100,0.979,1.000,0.932,0.997
+organamnist,224,"PubMedCLIP,Prov-GigaPath,Hibou-B,CONCH,UNI,BioMedCLIP,rad-dino",concat,2048,100,0.978,1.000,0.932,0.997
+organamnist,224,"PubMedCLIP,Prov-GigaPath,Hibou-B,CONCH,UNI,BioMedCLIP,rad-dino",ifusion,1024,100,0.977,1.000,0.929,0.996
