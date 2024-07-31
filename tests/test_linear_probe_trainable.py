@@ -521,160 +521,120 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
         
-# Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dim, fusion_method, fast_run):
-    """
-    Trains the BioFuse model on the given dataset.
-
-    Args:
-    - dataset: The name of the dataset.
-    - model_names: The list of pre-trained models used in the BioFuse model.
-    - num_epochs: The number of training epochs.
-    - img_size: The image size.
-    - projection_dim: The dimension of the projection layer.
-    - fusion_method: The fusion method used in the BioFuse model.
-    - fast_run: Whether to run the training in fast mode.
-
-    Returns:
-    - None
-    """
-    set_seed(42)
-
-    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)
-
-    print("Model names: ", model_names)
-    print("Fusion method: ", fusion_method)
-    print("Projection dim: ", projection_dim)
-    print("Number of epochs: ", num_epochs)
-    print("img_size: ", img_size)
-    fusion_method = fusion_method
-    projection_dim = projection_dim
-    biofuse_model = BioFuseModel(model_names, fusion_method=fusion_method, projection_dim=projection_dim)
-    # Switch to half-precision
-    #biofuse_model = biofuse_model.half()
-    # Move to GPU
-    biofuse_model = biofuse_model.to("cuda")
-    
-    # Show me the trainable layers
-    # print_trainable_parameters(biofuse_model)
-
-    print("Extracting features from the training set...")
-    # Extract features from the training set
-    embeddings_np, labels_np = generate_embeddings(train_dataloader, biofuse_model, cache_raw_embeddings=True, progress_bar=True)
-    
-    # Extract features from the validation set
-    print("Extracting features from the validation set...")
-    val_embeddings_np, val_labels_np = generate_embeddings(val_dataloader, biofuse_model, cache_raw_embeddings=True, is_training=False, progress_bar=True)
-
-    print_cuda_mem_stats()
-    #ipdb.set_trace()
-
-    # Set up the classifier
-    input_dim = embeddings_np.shape[1]
-    output_dim = 1 # binary classification   
-    if num_classes > 2:
-        output_dim = num_classes    
-
-    print("Output dim: ", output_dim)
-
-    classifier = LogisticRegression2(input_dim, output_dim)
-    # Switch to half-precision
-    #classifier = classifier.half()
-    classifier = classifier.to("cuda")
-    #classifier = MLPClassifier(input_dim, hidden_dim=64, output_dim=output_dim)
-
-    optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.004)
-    if num_classes == 2:
-        criterion = nn.BCEWithLogitsLoss()
-    else:
-        criterion = nn.CrossEntropyLoss()
-    
-
-    best_model = None
-    best_val_acc = 0.0
-    best_loss = float('inf')
-    patience = PATIENCE
-    patience_counter = 0
-
-    print("Training model...")
-    for epoch in tqdm(range(num_epochs)):
-        #print(f"Epoch [{epoch+1}/{num_epochs}]..")
-        biofuse_model.train()
-        classifier.train()
-        optimizer.zero_grad()
-
-        # Compute embeddings and labels
-        embeddings_tensor, labels_tensor = generate_embeddings(train_dataloader, biofuse_model)
-        labels_tensor = labels_tensor.to("cuda")
-       
-        # Train classifier
-        logits = classifier(embeddings_tensor)        
-        if num_classes == 2:
-            loss = criterion(logits, labels_tensor.unsqueeze(1).float())
-        else:
-            loss = criterion(logits, labels_tensor)
-        loss.backward()            
-        optimizer.step()  
-
-        # Log the projection layer weights and gradients
-        # log_projection_layer_weights(biofuse_model, epoch, "Train")        
-        # log_projection_layer_gradients(biofuse_model, epoch, "Train")
-        
-        # Evaluate on validation set
-        biofuse_model.eval()
-        classifier.eval()
-
-        # Features for the validation set
-        val_embeddings_tensor, val_labels_tensor = generate_embeddings(val_dataloader, biofuse_model, is_training=False)
-        val_labels_tensor = val_labels_tensor.to("cuda")
-
-        with torch.no_grad():
-            val_logits = classifier(val_embeddings_tensor)
-            
-            if num_classes == 2:
-                val_loss = criterion(val_logits, val_labels_tensor.unsqueeze(1).float())
-                val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
-            else:
-                val_loss = criterion(val_logits, val_labels_tensor)
-                val_predictions = torch.argmax(val_logits, dim=1)
-
-            # Calculate Validation Accuracy
-            #val_predictions = (torch.sigmoid(val_logits) > 0.5).float()  # Apply sigmoid for probability, then threshold
-            # use argmax
-            #val_predictions = torch.argmax(val_logits, dim=1)
-            val_accuracy = (val_predictions.squeeze() == val_labels_tensor).float().mean()        
-            
-            if val_accuracy > best_val_acc:
-                best_val_acc = val_accuracy
-                best_loss = val_loss
-                #best_model = copy.deepcopy(biofuse_model.state_dict())
-                patience_counter = 0
-            else:
-                patience_counter += 1
-
-        # Reclaim memory from the GPU for embeddings and labels
-        del embeddings_tensor, labels_tensor
-        del val_embeddings_tensor, val_labels_tensor
-        torch.cuda.empty_cache()    
-            
-        print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss.item():.4f}, Validation Accuracy: {val_accuracy:.4f}') 
-        #print("-"*80)
-
-        if patience_counter >= patience:
-            print(f"Early stopping at epoch {epoch+1}")
-            break        
-
-    print("Training completed.")
-    # clear cache
-    #biofuse_model.clear_cached_embeddings()
-
-    # Print the best validation accuracy and loss 
-    print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation Loss: {best_loss.item():.4f}")       
-
-    # Evaluate on validation and test sets
-    val_accuracy, val_auc, test_accuracy, test_auc = standalone_eval(dataset, img_size, biofuse_model, model_names, fusion_method, projection_dim)
-
-    append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epoch + 1, val_accuracy, val_auc, test_accuracy, test_auc)
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims):                                                                                                                        
+     """                                                                                                                                                                                              
+     Trains the BioFuse model on the given dataset for all combinations of pre-trained models and projection dimensions.                                                                              
+                                                                                                                                                                                                      
+     Args:                                                                                                                                                                                            
+     - dataset: The name of the dataset.                                                                                                                                                              
+     - model_names: The list of pre-trained models used in the BioFuse model.                                                                                                                         
+     - num_epochs: The number of training epochs.                                                                                                                                                     
+     - img_size: The image size.                                                                                                                                                                      
+     - projection_dims: List of projection dimensions to try.                                                                                                                                         
+                                                                                                                                                                                                      
+     Returns:                                                                                                                                                                                         
+     - None                                                                                                                                                                                           
+     """                                                                                                                                                                                              
+     set_seed(42)                                                                                                                                                                                     
+                                                                                                                                                                                                      
+     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)                                                                                                    
+                                                                                                                                                                                                      
+     print("Model names: ", model_names)                                                                                                                                                              
+     print("Projection dims: ", projection_dims)                                                                                                                                                      
+     print("Number of epochs: ", num_epochs)                                                                                                                                                          
+     print("img_size: ", img_size)                                                                                                                                                                    
+                                                                                                                                                                                                      
+     # Extract and cache embeddings for each pre-trained model                                                                                                                                        
+     cached_embeddings = {}                                                                                                                                                                           
+     for model_name in model_names:                                                                                                                                                                   
+         print(f"Extracting features for {model_name}...")                                                                                                                                            
+         single_model = BioFuseModel([model_name], fusion_method='none', projection_dim=None)                                                                                                         
+         single_model = single_model.to("cuda")                                                                                                                                                       
+                                                                                                                                                                                                      
+         train_embeddings, train_labels = generate_embeddings(train_dataloader, single_model, cache_raw_embeddings=True, progress_bar=True)                                                           
+         val_embeddings, val_labels = generate_embeddings(val_dataloader, single_model, cache_raw_embeddings=True, is_training=False, progress_bar=True)                                              
+                                                                                                                                                                                                      
+         cached_embeddings[model_name] = {                                                                                                                                                            
+             'train': train_embeddings,                                                                                                                                                               
+             'val': val_embeddings                                                                                                                                                                    
+         }                                                                                                                                                                                            
+                                                                                                                                                                                                      
+     # Generate all combinations of pre-trained models                                                                                                                                                
+     model_combinations = []                                                                                                                                                                          
+     for r in range(1, len(model_names) + 1):                                                                                                                                                         
+         model_combinations.extend(itertools.combinations(model_names, r))                                                                                                                            
+                                                                                                                                                                                                      
+     best_config = None                                                                                                                                                                               
+     best_val_acc = 0.0                                                                                                                                                                               
+     best_val_auc = 0.0                                                                                                                                                                               
+                                                                                                                                                                                                      
+     for models in model_combinations:                                                                                                                                                                
+         for projection_dim in projection_dims:                                                                                                                                                       
+             print(f"\nTraining configuration: Models: {models}, Projection dim: {projection_dim}")                                                                                                   
+                                                                                                                                                                                                      
+             # Combine embeddings for the current model combination                                                                                                                                   
+             train_embeddings = torch.cat([cached_embeddings[model]['train'] for model in models], dim=1)                                                                                             
+             val_embeddings = torch.cat([cached_embeddings[model]['val'] for model in models], dim=1)                                                                                                 
+                                                                                                                                                                                                      
+             # Set up the classifier                                                                                                                                                                  
+             input_dim = train_embeddings.shape[1]                                                                                                                                                    
+             output_dim = 1 if num_classes == 2 else num_classes                                                                                                                                      
+             classifier = LogisticRegression2(input_dim, output_dim).to("cuda")                                                                                                                       
+                                                                                                                                                                                                      
+             optimizer = optim.Adam(classifier.parameters(), lr=0.004)                                                                                                                                
+             criterion = nn.BCEWithLogitsLoss() if num_classes == 2 else nn.CrossEntropyLoss()                                                                                                        
+                                                                                                                                                                                                      
+             # Training loop                                                                                                                                                                          
+             for epoch in range(num_epochs):                                                                                                                                                          
+                 classifier.train()                                                                                                                                                                   
+                 optimizer.zero_grad()                                                                                                                                                                
+                                                                                                                                                                                                      
+                 logits = classifier(train_embeddings)                                                                                                                                                
+                 loss = criterion(logits, train_labels.to("cuda"))                                                                                                                                    
+                 loss.backward()                                                                                                                                                                      
+                 optimizer.step()                                                                                                                                                                     
+                                                                                                                                                                                                      
+                 if (epoch + 1) % 10 == 0:                                                                                                                                                            
+                     print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')                                                                                                                
+                                                                                                                                                                                                      
+             # Evaluate on validation set                                                                                                                                                             
+             classifier.eval()                                                                                                                                                                        
+             with torch.no_grad():                                                                                                                                                                    
+                 val_logits = classifier(val_embeddings)                                                                                                                                              
+                 val_predictions = torch.sigmoid(val_logits) if num_classes == 2 else torch.softmax(val_logits, dim=1)                                                                                
+                 val_accuracy = accuracy_score(val_labels.cpu(), val_predictions.cpu().argmax(dim=1))                                                                                                 
+                 val_auc = roc_auc_score(val_labels.cpu(), val_predictions.cpu(), multi_class='ovr' if num_classes > 2 else 'raise')                                                                  
+                                                                                                                                                                                                      
+             print(f"Validation Accuracy: {val_accuracy:.4f}, Validation AUC: {val_auc:.4f}")                                                                                                         
+                                                                                                                                                                                                      
+             if val_accuracy > best_val_acc or (val_accuracy == best_val_acc and val_auc > best_val_auc):                                                                                             
+                 best_val_acc = val_accuracy                                                                                                                                                          
+                 best_val_auc = val_auc                                                                                                                                                               
+                 best_config = {'models': models, 'projection_dim': projection_dim}                                                                                                                   
+                                                                                                                                                                                                      
+     print(f"\nBest configuration: {best_config}")                                                                                                                                                    
+     print(f"Best Validation Accuracy: {best_val_acc:.4f}, Best Validation AUC: {best_val_auc:.4f}")                                                                                                  
+                                                                                                                                                                                                      
+     # Evaluate on test set using the best configuration                                                                                                                                              
+     best_model = BioFuseModel(best_config['models'], fusion_method='concat', projection_dim=best_config['projection_dim'])                                                                           
+     best_model = best_model.to("cuda")                                                                                                                                                               
+                                                                                                                                                                                                      
+     test_embeddings, test_labels = generate_embeddings(test_dataloader, best_model, is_training=False, progress_bar=True)                                                                            
+                                                                                                                                                                                                      
+     classifier = LogisticRegression2(test_embeddings.shape[1], output_dim).to("cuda")                                                                                                                
+     classifier.load_state_dict(torch.load('best_classifier.pth'))                                                                                                                                    
+     classifier.eval()                                                                                                                                                                                
+                                                                                                                                                                                                      
+     with torch.no_grad():                                                                                                                                                                            
+         test_logits = classifier(test_embeddings)                                                                                                                                                    
+         test_predictions = torch.sigmoid(test_logits) if num_classes == 2 else torch.softmax(test_logits, dim=1)                                                                                     
+         test_accuracy = accuracy_score(test_labels.cpu(), test_predictions.cpu().argmax(dim=1))                                                                                                      
+         test_auc = roc_auc_score(test_labels.cpu(), test_predictions.cpu(), multi_class='ovr' if num_classes > 2 else 'raise')                                                                       
+                                                                                                                                                                                                      
+     print(f"Test Accuracy: {test_accuracy:.4f}, Test AUC: {test_auc:.4f}")                                                                                                                           
+                                                                                                                                                                                                      
+     append_results_to_csv(dataset, img_size, best_config['models'], 'concat', best_config['projection_dim'],                                                                                         
+                           num_epochs, best_val_acc, best_val_auc, test_accuracy, test_auc)
 
 
 def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc):
@@ -706,24 +666,25 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
         writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}'])
 
 
+def parse_projections(proj_str):
+    if proj_str:
+        return list(map(int, proj_str.split(',')))
+    return []
+
 def main():
-    parser = argparse.ArgumentParser(description='BioFuse v0.1')
+    parser = argparse.ArgumentParser(description='BioFuse v1.1 (AutoFuse)')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--img_size', type=int, default=28, help='Image size')
-    parser.add_argument('--projection_dim', type=int, default=512, help='Projection dimension')
-    parser.add_argument('--fusion_method', type=str, default='concat', help='Fusion method')
-    parser.add_argument('--fast_run', type=bool, default=False, help='Fast run')
     parser.add_argument('--dataset', type=str, default='breastmnist', help='Dataset')
     parser.add_argument('--models', type=str, default='BioMedCLIP', help='List of pre-trained models, delimited by comma')
+    parser.add_argument('--projections', type=parse_projections, default=[0], help='List of projection dimensions, delimited by comma')
     args = parser.parse_args()
 
     train_model(args.dataset, 
                 args.models.split(','), 
                 args.num_epochs, 
-                args.img_size, 
-                args.projection_dim, 
-                args.fusion_method, 
-                args.fast_run)
+                args.img_size,
+                args.projections)
     
 if __name__ == "__main__":
     main()
