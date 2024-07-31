@@ -1,0 +1,72 @@
+Goal: Identify the ideal combination of pre-trained models for a given dataset (train + validate).
+
+Why: Adding more models do not lead to better performance, the complementary nature of features from different pre-trained embeddings work in surprising ways.
+
+Benefits: If implemented well, we extract the embeddings *once* from each pre-trained model and will be able to search through a greater landscape much faster. 
+
+Thus:
+
+Input: 
+
+1. List of pre-trained models
+2. Train dataset
+3. Validation dataset
+
+Output:
+
+1. Best configuration + results
+2. Best BioFuse model
+
+Pseudocode:
+
+// For the training and validate dataset, extract embeddings once for each pre-trained model
+
+// generate all possible model-ensemble configurations
+
+// Evaluate for each possible configuration
+
+// Return best model configuration + results.
+
+```python
+import biofuse
+
+# Get list of supported models
+biofuse.available_models()
+# ["UNI", "PubMedCLIP", "CONCH", "rad-dino"]
+
+# load images
+train_image_paths = ...
+val_image_paths = ...
+# load labels
+train_image_labels = ...
+val_image_labels = ...
+
+# Construct the dataset for BioFuse
+train_dataset = biofuse.BioFuseDataset(train_image_paths, train_image_labels)
+val_dataset = biofuse.BioFuseDataset(val_image_paths, val_image_labels)
+
+# Select models
+selected_models = ["UNI", "CONCH", "rad-dino"]
+biofuse_model = biofuse.search(train_dataset, val_dataset, selected_models)
+
+# After a while..
+
+biofuse_model.results()
+biofuse_model.save_model()
+
+# Validate on test dataset
+test_image_paths = ...
+test_image_labels = ...
+test_dataset = biofuse.BioFuseDataset(test_image_paths, test_image_labels)
+
+# Evaluate on test dataset (linear probe)
+biofuse_model.eval(test_dataset)
+
+# Get the embeddings for your own use
+biofuse_modl.get_embeddings(test_dataset)
+```
+
+Questions:
+
+1. How do we know the classification type? I.e., binary-classification, multi-class, multi-label, etc.
+    1. We pass this to BioFuseDataset
