@@ -11,29 +11,18 @@ class BioFuseModel(nn.Module):
         self.models = models
         self.fusion_method = fusion_method
         self.projection_dim = projection_dim
-        self.preprocessor = MultiModelPreprocessor(models)
-        self.embedding_extractors = nn.ModuleList()
         self.projection_layers = nn.ModuleList()
 
         for model in models:
-            self.embedding_extractors.append(PreTrainedEmbedding(model))
-
             if projection_dim > 0:
                 projection_layer = nn.Sequential(
                     nn.Linear(self.get_model_dim(model), projection_dim),
-                    #nn.ReLU(),
-                    #nn.LayerNorm(projection_dim)
                 )
             else:
                 print("No projection layer")
                 projection_layer = nn.Identity()
-                for param in projection_layer.parameters():
-                    param.requires_grad = False
             
             self.projection_layers.append(projection_layer)
-            
-        self.cached_train_embeddings = {model: {} for model in models}
-        self.cached_val_embeddings = {model: {} for model in models}
 
         # Initialize learnable weights for 'wsum', 'wmean', and 'ifusion' fusion methods
         if self.fusion_method in ['wsum', 'wmean']:
@@ -79,33 +68,8 @@ class BioFuseModel(nn.Module):
         # Concatenate interleaved chunks
         return torch.cat(interleaved_chunks, dim=-1)
 
-    def forward(self, input, cache_raw_embeddings=False, index=None, is_training=True):
-        #ipdb.set_trace()
-        cache = self.cached_train_embeddings if is_training else self.cached_val_embeddings
-
-        if index is not None and all(index in cache[model] for model in self.models):
-            raw_embeddings = [cache[model][index] for model in self.models]
-        else:
-            processed_images = self.preprocessor.preprocess(input[0])
-            raw_embeddings = []
-            for img, extractor in zip(processed_images, self.embedding_extractors):
-                embedding = extractor(img)
-                raw_embeddings.append(embedding)
-
-            if cache_raw_embeddings and index is not None:
-                for model, embedding in zip(self.models, raw_embeddings):
-                    cache[model][index] = embedding
-
-        # Print size of the cache to check if it is growing
-        #print("Size of cache: ", sum([len(cache[model]) for model in self.models]))
-
-        # print eh size of the raw embeddings
-        #print("Size of raw embeddings: ", [embedding.size() for embedding in raw_embeddings])
-        
-        # remove the batch dimension from the embeddings
-        raw_embeddings = [embedding.squeeze(0) for embedding in raw_embeddings]
-
-        embeddings = [projection(raw_embedding) for raw_embedding, projection in zip(raw_embeddings, self.projection_layers)]
+    def forward(self, embeddings):
+        projected_embeddings = [projection(embedding) for embedding, projection in zip(embeddings, self.projection_layers)]
         
         if self.fusion_method == 'concat':        
             fused_embedding = torch.cat(embeddings, dim=-1)
