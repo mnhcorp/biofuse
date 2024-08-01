@@ -560,7 +560,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Generate all combinations of pre-trained models
     configurations = []
     for r in range(1, len(model_names) + 1):
-        configurations.extend(itertools.combinations(model_names, r))
+        configurations.extend(itertools.permutations(model_names, r))
 
     best_config = None
     best_val_acc = 0
