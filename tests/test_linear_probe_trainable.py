@@ -643,26 +643,9 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                 # Evaluate on test set
                 biofuse_model.eval()
                 classifier.eval()
-                with torch.no_grad():
-                    test_embeddings_cuda = [test_embeddings[model].to("cuda") for model in models]
-                    test_fused_embeddings = biofuse_model(test_embeddings_cuda)
-                    test_logits = classifier(test_fused_embeddings)
-                    
-                    test_labels_cuda = test_labels.to("cuda")
-                    if num_classes == 2:
-                        test_predictions = (torch.sigmoid(test_logits) > 0.5).float()
-                    else:
-                        test_predictions = torch.argmax(test_logits, dim=1)
-                    
-                    test_accuracy = (test_predictions.squeeze() == test_labels_cuda).float().mean()
-
-                print(f"Validation Accuracy: {val_accuracy:.4f}")
 
                 # Compute test accuracy using standalone_eval
-                test_accuracy, test_auc_roc = standalone_eval(biofuse_model, classifier, train_embeddings, train_labels, test_embeddings, test_labels, num_classes)
-
-                print(f"Test Accuracy: {test_accuracy:.4f}")
-                print(f"Test AUC-ROC: {test_auc_roc:.4f}")
+                test_accuracy, test_auc_roc = standalone_eval(biofuse_model, classifier, train_embeddings, train_labels, test_embeddings, test_labels, num_classes)        
 
                 if test_accuracy > best_test_acc:
                     best_test_acc = test_accuracy
@@ -671,7 +654,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                     best_test_auc_roc = test_auc_roc
 
     print(f"\nBest configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
-    print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+    #print(f"Best Validation Accuracy: {best_val_acc:.4f}")
     print(f"Best Test Accuracy: {best_test_acc:.4f}")
     print(f"Best Test AUC-ROC: {best_test_auc_roc:.4f}")
 
