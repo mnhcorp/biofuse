@@ -528,6 +528,13 @@ def extract_and_cache_embeddings(dataloader, models):
     extractors = {model: PreTrainedEmbedding(model) for model in models}
     
     for image, label in tqdm(dataloader, desc="Extracting embeddings"):
+        if isinstance(image, list):
+            image = image[0]  # Take the first image if it's a list
+        if not isinstance(image, torch.Tensor):
+            image = torch.tensor(image)
+        if image.dim() == 3:
+            image = image.unsqueeze(0)  # Add batch dimension if missing
+        
         for model in models:
             with torch.no_grad():
                 embeddings = extractors[model](image)
@@ -537,7 +544,7 @@ def extract_and_cache_embeddings(dataloader, models):
     # Stack embeddings and convert labels to tensor
     for model in models:
         cached_embeddings[model] = torch.stack(cached_embeddings[model])
-    labels = torch.tensor(labels)
+    labels = torch.cat(labels)
     
     return cached_embeddings, labels
 
