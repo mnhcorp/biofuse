@@ -108,37 +108,32 @@ class BioFuseModel(nn.Module):
 
         return fused_embedding
 
-    def forward_test(self, input):
+    def forward_test(self, embeddings):
         with torch.no_grad():
-            raw_embeddings = []
-            for extractor in self.embedding_extractors:
-                embedding = extractor(input)
-                raw_embeddings.append(embedding)
-
-            embeddings = [projection(raw_embedding) for raw_embedding, projection in zip(raw_embeddings, self.projection_layers)]
+            projected_embeddings = [projection(embedding) for embedding, projection in zip(embeddings, self.projection_layers)]
             
             if self.fusion_method == 'concat':
-                fused_embedding = torch.cat(embeddings, dim=-1)
+                fused_embedding = torch.cat(projected_embeddings, dim=-1)
             elif self.fusion_method == 'mean':
-                fused_embedding = torch.mean(torch.stack(embeddings), dim=0)
+                fused_embedding = torch.mean(torch.stack(projected_embeddings), dim=0)
             elif self.fusion_method == 'max':
-                fused_embedding = torch.max(torch.stack(embeddings), dim=0)[0]
+                fused_embedding = torch.max(torch.stack(projected_embeddings), dim=0)[0]
             elif self.fusion_method == 'sum':
-                fused_embedding = torch.sum(torch.stack(embeddings), dim=0)
+                fused_embedding = torch.sum(torch.stack(projected_embeddings), dim=0)
             elif self.fusion_method == 'mul':
-                fused_embedding = torch.prod(torch.stack(embeddings), dim=0)
+                fused_embedding = torch.prod(torch.stack(projected_embeddings), dim=0)
             elif self.fusion_method == 'wsum':
-                stacked_embeddings = torch.stack(embeddings)
+                stacked_embeddings = torch.stack(projected_embeddings)
                 fused_embedding = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
             elif self.fusion_method == 'wmean':
-                stacked_embeddings = torch.stack(embeddings)
+                stacked_embeddings = torch.stack(projected_embeddings)
                 weighted_sum = torch.sum(stacked_embeddings * self.fusion_weights.unsqueeze(1).unsqueeze(2), dim=0)
                 fused_embedding = weighted_sum / torch.sum(self.fusion_weights)
             elif self.fusion_method == 'ifusion':
-                fused_embedding = self._ifusion(embeddings)
+                fused_embedding = self._ifusion(projected_embeddings)
             elif self.fusion_method == 'self_attention':
-                embeddings = [embedding.unsqueeze(0) for embedding in embeddings]
-                stacked_embeddings = torch.stack(embeddings, dim=1)  # [batch_size, num_models, embedding_dim]
+                projected_embeddings = [embedding.unsqueeze(0) for embedding in projected_embeddings]
+                stacked_embeddings = torch.stack(projected_embeddings, dim=1)  # [batch_size, num_models, embedding_dim]
                 attn_output, _ = self.attention(stacked_embeddings, stacked_embeddings, stacked_embeddings)
                 fused_embedding = self.layer_norm(attn_output.mean(dim=1))  # Average over models
             else:
