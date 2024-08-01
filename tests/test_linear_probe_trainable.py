@@ -584,7 +584,15 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                 biofuse_model = biofuse_model.to("cuda")
 
                 # Set up the classifier
-                input_dim = projection_dim * len(models) if fusion_method == 'concat' else projection_dim
+                #input_dim = projection_dim * len(models) if fusion_method == 'concat' else projection_dim
+                if fusion_method == 'concat' and projection_dim == 0:
+                    # set input_dim to the sum of the model dimensions, use BioFuseModel.get_model_dim
+                    input_dim = sum([biofuse_model.get_model_dim(model) for model in models])
+                else:
+                    input_dim = projection_dim
+                # print the input_dim
+                print(f"Input dim: {input_dim}")
+                
                 output_dim = 1 if num_classes == 2 else num_classes
                 classifier = LogisticRegression2(input_dim, output_dim).to("cuda")
 
@@ -658,7 +666,10 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                     
                     test_accuracy = (test_predictions.squeeze() == test_labels_cuda).float().mean()
 
+                print(f"Validation Accuracy: {val_accuracy:.4f}")
+                print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
                 print(f"Test Accuracy: {test_accuracy:.4f}")
+                print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
                 if test_accuracy > best_test_acc:
                     best_test_acc = test_accuracy
