@@ -551,9 +551,9 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
-    train_embeddings, train_labels = extract_and_cache_embeddings(train_dataloader, model_names)
-    val_embeddings, val_labels = extract_and_cache_embeddings(val_dataloader, model_names)
-    test_embeddings, test_labels = extract_and_cache_embeddings(test_dataloader, model_names)
+    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names)
+    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names)
+    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names)
 
     # Generate all combinations of pre-trained models
     configurations = []
@@ -599,7 +599,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                     
                     # Train
                     optimizer.zero_grad()
-                    embeddings = [train_embeddings[model].to("cuda") for model in models]
+                    embeddings = [train_embeddings_cache[model].to("cuda") for model in models]
                     fused_embeddings = biofuse_model(embeddings)
                     logits = classifier(fused_embeddings)
                     
@@ -616,7 +616,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                     biofuse_model.eval()
                     classifier.eval()
                     with torch.no_grad():
-                        val_embeddings = [val_embeddings[model].to("cuda") for model in models]
+                        val_embeddings = [val_embeddings_cache[model].to("cuda") for model in models]
                         val_fused_embeddings = biofuse_model(val_embeddings)
                         val_logits = classifier(val_fused_embeddings)
                         
@@ -645,7 +645,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                 classifier.eval()
 
                 # Compute test accuracy using standalone_eval
-                test_accuracy, test_auc_roc = standalone_eval(biofuse_model, classifier, train_embeddings, train_labels, test_embeddings, test_labels, num_classes)        
+                test_accuracy, test_auc_roc = standalone_eval(biofuse_model, classifier, train_embeddings_cache, train_labels, test_embeddings_cache, test_labels, num_classes)        
 
                 if test_accuracy > best_test_acc:
                     best_test_acc = test_accuracy
