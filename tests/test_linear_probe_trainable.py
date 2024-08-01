@@ -468,7 +468,7 @@ def compute_auc_roc(classifier, features, labels, num_classes):
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
 
-def standalone_eval(biofuse_model, classifier, train_embeddings, train_labels, test_embeddings, test_labels, num_classes): 
+def standalone_eval(models, biofuse_model, classifier, train_embeddings, train_labels, test_embeddings, test_labels, num_classes): 
     """
     Standalone evaluation of the BioFuse model on the test set using cached embeddings.
 
@@ -490,7 +490,8 @@ def standalone_eval(biofuse_model, classifier, train_embeddings, train_labels, t
 
     with torch.no_grad():
         # Process train embeddings
-        train_fused_embeddings = biofuse_model([emb.to("cuda") for emb in train_embeddings.values()])
+        #train_fused_embeddings = biofuse_model([emb.to("cuda") for emb in train_embeddings.values()])
+        train_fused_embeddings = biofuse_model([train_embeddings[model].to("cuda") for model in models])
         train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
         train_labels_np = train_labels.cpu().numpy()
 
@@ -498,7 +499,8 @@ def standalone_eval(biofuse_model, classifier, train_embeddings, train_labels, t
         new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes)
 
         # Process test embeddings
-        test_fused_embeddings = biofuse_model([emb.to("cuda") for emb in test_embeddings.values()])
+        #test_fused_embeddings = biofuse_model([emb.to("cuda") for emb in test_embeddings.values()])
+        test_fused_embeddings = biofuse_model([test_embeddings[model].to("cuda") for model in models])
         test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
         test_labels_np = test_labels.cpu().numpy()
 
@@ -645,7 +647,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                 classifier.eval()
 
                 # Compute test accuracy using standalone_eval
-                test_accuracy, test_auc_roc = standalone_eval(biofuse_model, classifier, train_embeddings_cache, train_labels, test_embeddings_cache, test_labels, num_classes)        
+                test_accuracy, test_auc_roc = standalone_eval(models, biofuse_model, classifier, train_embeddings_cache, train_labels, test_embeddings_cache, test_labels, num_classes)        
 
                 if test_accuracy > best_test_acc:
                     best_test_acc = test_accuracy

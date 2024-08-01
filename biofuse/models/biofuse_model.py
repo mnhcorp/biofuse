@@ -69,7 +69,7 @@ class BioFuseModel(nn.Module):
         return torch.cat(interleaved_chunks, dim=-1)
 
     def forward(self, embeddings):
-        projected_embeddings = [projection(embedding) for embedding, projection in zip(embeddings, self.projection_layers)]
+        embeddings = [projection(embedding) for embedding, projection in zip(embeddings, self.projection_layers)]
         
         if self.fusion_method == 'concat':        
             fused_embedding = torch.cat(embeddings, dim=-1)
