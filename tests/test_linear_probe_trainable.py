@@ -25,6 +25,9 @@ import itertools
 import torch.optim as optim
 import torch.nn as nn
 
+# Preprocessor
+from biofuse.models.processor import MultiModelPreprocessor
+
 PATIENCE = 25
 
 def set_seed(seed: int = 42) -> None:
@@ -524,27 +527,28 @@ def standalone_eval(dataset, img_size, biofuse, models, fusion_method, projectio
 def extract_and_cache_embeddings(dataloader, models):
     cached_embeddings = {model: [] for model in models}
     labels = []
-    
-    extractors = {model: PreTrainedEmbedding(model) for model in models}
-    
-    for image, label in tqdm(dataloader, desc="Extracting embeddings"):
-        if isinstance(image, list):
-            image = image[0]  # Take the first image if it's a list
-        if not isinstance(image, torch.Tensor):
-            image = torch.tensor(image)
-        if image.dim() == 3:
-            image = image.unsqueeze(0)  # Add batch dimension if missing
         
+    # Set up the model and preprocessors
+    extractors = {}
+    preprocessors = {}
+    for model in models:
+        extractors[model] = PreTrainedEmbedding(model)
+        preprocessors[model] = MultiModelPreprocessor([model])       
+
+    # Use the technique from generate_embeddings to extract embeddings
+    for image, label in tqdm(dataloader, desc="Extracting embeddings"):        
         for model in models:
+            # Run it through the preprocessor
+            processed_image = preprocessors[model].preprocess(image[0])[0]        
             with torch.no_grad():
-                embeddings = extractors[model](image)
+                embeddings = extractors[model](processed_image)
             cached_embeddings[model].append(embeddings.squeeze(0))
         labels.append(label)
-    
-    # Stack embeddings and convert labels to tensor
+
+    # Stack embeddings and convert labels to tensor and remove the batch dimension
     for model in models:
-        cached_embeddings[model] = torch.stack(cached_embeddings[model])
-    labels = torch.cat(labels)
+        cached_embeddings[model] = torch.stack(cached_embeddings[model]).squeeze(1)
+    labels = torch.tensor(labels)
     
     return cached_embeddings, labels
 
