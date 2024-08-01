@@ -525,18 +525,19 @@ def extract_and_cache_embeddings(dataloader, models):
     cached_embeddings = {model: [] for model in models}
     labels = []
     
-    for images, batch_labels in tqdm(dataloader, desc="Extracting embeddings"):
-        for model in models:
-            extractor = PreTrainedEmbedding(model)
-            with torch.no_grad():
-                embeddings = extractor(images)
-            cached_embeddings[model].append(embeddings)
-        labels.append(batch_labels)
+    extractors = {model: PreTrainedEmbedding(model) for model in models}
     
-    # Concatenate embeddings and labels
+    for image, label in tqdm(dataloader, desc="Extracting embeddings"):
+        for model in models:
+            with torch.no_grad():
+                embeddings = extractors[model](image)
+            cached_embeddings[model].append(embeddings.squeeze(0))
+        labels.append(label)
+    
+    # Stack embeddings and convert labels to tensor
     for model in models:
-        cached_embeddings[model] = torch.cat(cached_embeddings[model], dim=0)
-    labels = torch.cat(labels, dim=0)
+        cached_embeddings[model] = torch.stack(cached_embeddings[model])
+    labels = torch.tensor(labels)
     
     return cached_embeddings, labels
 
