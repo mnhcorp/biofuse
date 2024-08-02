@@ -582,105 +582,139 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     best_test_acc = 0
     best_val_auc_roc = 0
 
+    # First pass: Evaluate configurations with a single epoch
+    print("\nFirst pass: Evaluating model combinations")
     for models in configurations:
-        for projection_dim in projection_dims:
-            for fusion_method in fusion_methods:
-                print(f"\nTraining configuration: Models: {models}, Projection dim: {projection_dim}, Fusion method: {fusion_method}")
+        for fusion_method in fusion_methods:
+            print(f"\nEvaluating configuration: Models: {models}, Fusion method: {fusion_method}")
 
-                # Initialize the BioFuse model
-                biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=projection_dim)
-                biofuse_model = biofuse_model.to("cuda")
+            # Initialize the BioFuse model
+            biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=0)
+            biofuse_model = biofuse_model.to("cuda")
 
-                # Set up the classifier
-                #input_dim = projection_dim * len(models) if fusion_method == 'concat' else projection_dim
-                if fusion_method == 'concat' and projection_dim == 0:
-                    # set input_dim to the sum of the model dimensions, use BioFuseModel.get_model_dim
-                    input_dim = sum([biofuse_model.get_model_dim(model) for model in models])
-                else:
-                    input_dim = projection_dim
-                # print the input_dim
-                print(f"Input dim: {input_dim}")
-                
-                output_dim = 1 if num_classes == 2 else num_classes
-                classifier = LogisticRegression2(input_dim, output_dim).to("cuda")
+            # Set up the classifier
+            input_dim = sum([biofuse_model.get_model_dim(model) for model in models])
+            print(f"Input dim: {input_dim}")
+            
+            output_dim = 1 if num_classes == 2 else num_classes
+            classifier = LogisticRegression2(input_dim, output_dim).to("cuda")
 
-                optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.004)
-                criterion = nn.BCEWithLogitsLoss() if num_classes == 2 else nn.CrossEntropyLoss()
+            # Evaluate on test set
+            biofuse_model.eval()
+            classifier.eval()
 
-                best_val_acc = 0.0
-                patience = PATIENCE
-                patience_counter = 0
+            # Compute test accuracy using standalone_eval
+            val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(models, biofuse_model, classifier, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
 
-                for epoch in range(num_epochs):
-                    biofuse_model.train()
-                    classifier.train()
-                    
-                    # Train
-                    optimizer.zero_grad()
-                    embeddings = [train_embeddings_cache[model].to("cuda") for model in models]
-                    fused_embeddings = biofuse_model(embeddings)
-                    logits = classifier(fused_embeddings)
-                    
-                    labels = train_labels.to("cuda")
-                    if num_classes == 2:
-                        loss = criterion(logits, labels.unsqueeze(1).float())
-                    else:
-                        loss = criterion(logits, labels)
-                    
-                    loss.backward()
-                    optimizer.step()
+            # Save this result
+            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
 
-                    # Validate
-                    biofuse_model.eval()
-                    classifier.eval()
-                    with torch.no_grad():
-                        val_embeddings = [val_embeddings_cache[model].to("cuda") for model in models]
-                        val_fused_embeddings = biofuse_model(val_embeddings)
-                        val_logits = classifier(val_fused_embeddings)
-                        
-                        val_labels = val_labels.to("cuda")
-                        if num_classes == 2:
-                            val_predictions = (torch.sigmoid(val_logits) > 0.5).float()
-                        else:
-                            val_predictions = torch.argmax(val_logits, dim=1)
-                        
-                        val_accuracy = (val_predictions.squeeze() == val_labels).float().mean()
+            if test_accuracy > best_test_acc:
+                best_test_acc = test_accuracy
+                best_val_acc = val_accuracy
+                best_config = (models, 0, fusion_method)
+                best_test_auc_roc = test_auc_roc
+                best_val_auc_roc = val_auc_roc
 
-                    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}, Val Accuracy: {val_accuracy:.4f}')
-
-                    if val_accuracy > best_val_acc:
-                        best_val_acc = val_accuracy
-                        patience_counter = 0
-                    else:
-                        patience_counter += 1
-
-                    if patience_counter >= patience:
-                        print(f"Early stopping at epoch {epoch+1}")
-                        break
-
-                # Evaluate on test set
-                biofuse_model.eval()
-                classifier.eval()
-
-                # Compute test accuracy using standalone_eval
-                val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(models, biofuse_model, classifier, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
-
-                # save this result too
-                append_results_to_csv(dataset, img_size, models, fusion_method, projection_dim, num_epochs, val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
-
-                if test_accuracy > best_test_acc:
-                    best_test_acc = test_accuracy
-                    best_val_acc = val_accuracy
-                    best_config = (models, projection_dim, fusion_method)
-                    best_test_auc_roc = test_auc_roc
-                    best_val_auc_roc = val_auc_roc
-
-    print(f"\nBest configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
-    #print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+    print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
     print(f"Best Test Accuracy: {best_test_acc:.4f}")
     print(f"Best Test AUC-ROC: {best_test_auc_roc:.4f}")
 
-    # Save results
+    # Second pass: Train with learnable layers using the best configuration
+    print("\nSecond pass: Training with learnable layers")
+    best_models, _, best_fusion_method = best_config
+    projection_dims_second_pass = [512, 1024, 2048]
+
+    for projection_dim in projection_dims_second_pass:
+        print(f"\nTraining configuration: Models: {best_models}, Projection dim: {projection_dim}, Fusion method: {best_fusion_method}")
+
+        # Initialize the BioFuse model
+        biofuse_model = BioFuseModel(best_models, fusion_method=best_fusion_method, projection_dim=projection_dim)
+        biofuse_model = biofuse_model.to("cuda")
+
+        # Set up the classifier
+        input_dim = projection_dim
+        print(f"Input dim: {input_dim}")
+        
+        output_dim = 1 if num_classes == 2 else num_classes
+        classifier = LogisticRegression2(input_dim, output_dim).to("cuda")
+
+        optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.004)
+        criterion = nn.BCEWithLogitsLoss() if num_classes == 2 else nn.CrossEntropyLoss()
+
+        best_epoch_val_acc = 0.0
+        patience = PATIENCE
+        patience_counter = 0
+
+        for epoch in range(num_epochs):
+            biofuse_model.train()
+            classifier.train()
+            
+            # Train
+            optimizer.zero_grad()
+            embeddings = [train_embeddings_cache[model].to("cuda") for model in best_models]
+            fused_embeddings = biofuse_model(embeddings)
+            logits = classifier(fused_embeddings)
+            
+            labels = train_labels.to("cuda")
+            if num_classes == 2:
+                loss = criterion(logits, labels.unsqueeze(1).float())
+            else:
+                loss = criterion(logits, labels)
+            
+            loss.backward()
+            optimizer.step()
+
+            # Validate
+            biofuse_model.eval()
+            classifier.eval()
+            with torch.no_grad():
+                val_embeddings = [val_embeddings_cache[model].to("cuda") for model in best_models]
+                val_fused_embeddings = biofuse_model(val_embeddings)
+                val_logits = classifier(val_fused_embeddings)
+                
+                val_labels = val_labels.to("cuda")
+                if num_classes == 2:
+                    val_predictions = (torch.sigmoid(val_logits) > 0.5).float()
+                else:
+                    val_predictions = torch.argmax(val_logits, dim=1)
+                
+                val_accuracy = (val_predictions.squeeze() == val_labels).float().mean()
+
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}, Val Accuracy: {val_accuracy:.4f}')
+
+            if val_accuracy > best_epoch_val_acc:
+                best_epoch_val_acc = val_accuracy
+                patience_counter = 0
+            else:
+                patience_counter += 1
+
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
+
+        # Evaluate on test set
+        biofuse_model.eval()
+        classifier.eval()
+
+        # Compute test accuracy using standalone_eval
+        val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(best_models, biofuse_model, classifier, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+
+        # Save this result
+        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
+
+        if test_accuracy > best_test_acc:
+            best_test_acc = test_accuracy
+            best_val_acc = val_accuracy
+            best_config = (best_models, projection_dim, best_fusion_method)
+            best_test_auc_roc = test_auc_roc
+            best_val_auc_roc = val_auc_roc
+
+    print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
+    print(f"Best Test Accuracy: {best_test_acc:.4f}")
+    print(f"Best Test AUC-ROC: {best_test_auc_roc:.4f}")
+
+    # Save final results
     append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
 
 
