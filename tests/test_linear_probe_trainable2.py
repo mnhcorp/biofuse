@@ -468,7 +468,7 @@ def compute_auc_roc(classifier, features, labels, num_classes):
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
 
-def standalone_eval(models, biofuse_model, classifier, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes): 
+def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes): 
     """
     Standalone evaluation of the BioFuse model on the test set using cached embeddings.
 
@@ -486,8 +486,7 @@ def standalone_eval(models, biofuse_model, classifier, train_embeddings, train_l
     - float: The test AUC-ROC score.
     """   
     biofuse_model.eval()
-    classifier.eval()
-
+    
     with torch.no_grad():
         # Process train embeddings
         #train_fused_embeddings = biofuse_model([emb.to("cuda") for emb in train_embeddings.values()])
@@ -592,19 +591,16 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=0)
             biofuse_model = biofuse_model.to("cuda")
 
-            # Set up the classifier
-            input_dim = sum([biofuse_model.get_model_dim(model) for model in models])
-            print(f"Input dim: {input_dim}")
-            
-            output_dim = 1 if num_classes == 2 else num_classes
-            classifier = LogisticRegression2(input_dim, output_dim).to("cuda")
+            # Get the train embeddings
+            embeddings = [train_embeddings_cache[model].to("cuda") for model in models]
+            fused_embeddings = biofuse_model(embeddings)
 
-            # Evaluate on test set
-            biofuse_model.eval()
-            classifier.eval()
+            # Get the validation embeddings
+            val_embeddings = [val_embeddings_cache[model].to("cuda") for model in models]
+            val_fused_embeddings = biofuse_model(val_embeddings)
 
             # Compute test accuracy using standalone_eval
-            val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(models, biofuse_model, classifier, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+            val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
 
             # Save this result
             append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
@@ -620,11 +616,19 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     print(f"Best Test Accuracy: {best_test_acc:.4f}")
     print(f"Best Test AUC-ROC: {best_test_auc_roc:.4f}")
 
+    # Only do the second pass if additional projection dims were passed
+    if len(projection_dims) == 1 and projection_dims[0] == 0:
+        print("\nNo projection dims provided for the second")
+        # save final results
+        append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
+        return
+
     # Second pass: Train with learnable layers using the best configuration
     print("\nSecond pass: Training with learnable layers")
     best_models, _, best_fusion_method = best_config
-    projection_dims_second_pass = [512, 1024, 2048]
-
+    # remove 0 projection dim from the list
+    projection_dims_second_pass = projection_dims[1:]
+    
     for projection_dim in projection_dims_second_pass:
         print(f"\nTraining configuration: Models: {best_models}, Projection dim: {projection_dim}, Fusion method: {best_fusion_method}")
 
@@ -633,7 +637,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         biofuse_model = biofuse_model.to("cuda")
 
         # Set up the classifier
-        input_dim = projection_dim
+        input_dim = projection_dim if fusion_method != 'concat' else projection_dim * len(best_models)
         print(f"Input dim: {input_dim}")
         
         output_dim = 1 if num_classes == 2 else num_classes
@@ -698,13 +702,19 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         classifier.eval()
 
         # Compute test accuracy using standalone_eval
-        val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(best_models, biofuse_model, classifier, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+        val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
 
         # Save this result
         append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
 
         if test_accuracy > best_test_acc:
             best_test_acc = test_accuracy
+            best_val_acc = val_accuracy
+            best_config = (best_models, projection_dim, best_fusion_method)
+            best_test_auc_roc = test_auc_roc
+            best_val_auc_roc = val_auc_roc
+        # if the test accuracy is the same, check the AUC-ROC score
+        elif test_accuracy == best_test_acc and test_auc_roc > best_test_auc_roc:
             best_val_acc = val_accuracy
             best_config = (best_models, projection_dim, best_fusion_method)
             best_test_auc_roc = test_auc_roc
@@ -748,6 +758,8 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
 
 def parse_projections(proj_str):
     if proj_str:
+        # add 0 as the first projection dimension
+        proj_str = '0,' + proj_str
         return list(map(int, proj_str.split(',')))
     return []
 
