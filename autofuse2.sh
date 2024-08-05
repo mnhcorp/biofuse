@@ -15,8 +15,9 @@ size=$2
         #     "Prov-GigaPath": 1536,
         #     "Hibou-B": 768,
         # }
-#models="BioMedCLIP,CONCH" #,PubMedCLIP,rad-dino,UNI,Hibou-B,Prov-GigaPath"
-models="BioMedCLIP,CONCH,Hibou-B"
+models="BioMedCLIP,CONCH,PubMedCLIP,rad-dino,UNI,Hibou-B,Prov-GigaPath"
+#models="BioMedCLIP,CONCH,Hibou-B"
+# models="BioMedCLIP,rad-dino,UNI,Hibou-B,Prov-GigaPath"
 fusion_methods="concat"
 epochs=100
 
