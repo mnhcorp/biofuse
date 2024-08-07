@@ -561,6 +561,34 @@ def extract_and_cache_embeddings(dataloader, models):
     
     return cached_embeddings, labels
 
+def harmonic_mean(val_acc, val_auc):
+    return 2 / ((1 / val_acc) + (1 / val_auc))
+
+def weighted_mean(val_acc, val_auc):
+    weights = [0.4, 0.6]        
+    score = weights[0] * val_acc + weights[1] * val_auc
+    return score
+
+def weighted_mean_with_penalty(val_acc, val_auc):
+    weights = [0.4, 0.6]        
+    score = weights[0] * val_acc + weights[1] * val_auc
+    
+    # Define thresholds for penalties
+    acc_threshold = 0.90
+    auc_threshold = 0.90
+    
+    # Define penalty factors
+    acc_penalty_factor = 0.2
+    auc_penalty_factor = 0.2
+    
+    # Calculate penalties based on exceeding thresholds
+    acc_penalty = acc_penalty_factor * max(0, val_acc - acc_threshold)
+    auc_penalty = auc_penalty_factor * max(0, val_auc - auc_threshold)
+    
+    # Apply penalties to the score
+    penalized_score = score - acc_penalty - auc_penalty
+    
+    return penalized_score
         
 # Training the model with validation-informed adjustment
 def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods):
@@ -583,6 +611,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     best_val_acc = 0
     best_test_acc = 0
     best_val_auc_roc = 0
+    best_harmonic_mean = 0
 
     # First pass: Evaluate configurations with a single epoch
     print("\nFirst pass: Evaluating model combinations")
@@ -603,15 +632,18 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             val_fused_embeddings = biofuse_model(val_embeddings)
 
             # Compute validation accuracy using standalone_eval
-            val_accuracy, val_auc_roc, _, _ = standalone_eval(models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+            val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)
+            harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
             # Save this result
-            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, None, None)
+            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
 
-            if val_accuracy > best_val_acc:
+            #if val_accuracy > best_val_acc:
+            if harmonic_mean_val > best_harmonic_mean:
                 best_val_acc = val_accuracy
                 best_config = (models, 0, fusion_method)
                 best_val_auc_roc = val_auc_roc
+                best_harmonic_mean = harmonic_mean_val
 
     print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
     print(f"Best Validation Accuracy: {best_val_acc:.4f}")
@@ -703,15 +735,19 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         classifier.eval()
 
         # Compute validation accuracy using standalone_eval
-        val_accuracy, val_auc_roc, _, _ = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+        val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+        harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
         # Save this result
-        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, None, None)
+        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
 
-        if val_accuracy > best_val_acc:
+        
+        #if val_accuracy > best_val_acc:
+        if harmonic_mean_val > best_harmonic_mean:
             best_val_acc = val_accuracy
             best_config = (best_models, projection_dim, best_fusion_method)
             best_val_auc_roc = val_auc_roc
+            best_harmonic_mean = harmonic_mean_val
 
     print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
     print(f"Best Validation Accuracy: {best_val_acc:.4f}")
@@ -720,7 +756,8 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Compute test accuracy for the best configuration
     best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
     best_biofuse_model = best_biofuse_model.to("cuda")
-    _, _, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)
+    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)
+    #best_harmonic_mean = harmonic_mean(best_val_acc, best_val_auc)
 
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
     print(f"Test AUC-ROC for Best Configuration: {best_test_auc_roc:.4f}")
@@ -729,7 +766,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc, harmonic_mean_val=0):
     """
     Appends the results to a CSV file.
 
@@ -755,7 +792,15 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
         writer = csv.writer(file)
         if not file_exists:
             writer.writerow(['Dataset', 'Image Size', 'Models', 'Fusion Method', 'Projection Dim', 'Epochs', 'Val Accuracy', 'Val AUC-ROC', 'Test Accuracy', 'Test AUC-ROC'])
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}'])
+
+        # replace Nones with 0 for test or val accuracy
+        if val_accuracy is None:
+            val_accuracy = 0
+            val_auc = 0
+        if test_accuracy is None:
+            test_accuracy = 0
+            test_auc = 0
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}', f'{harmonic_mean_val:.3f}'])
 
 def parse_projections(proj_str):
     if proj_str:
