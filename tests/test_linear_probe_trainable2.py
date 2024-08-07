@@ -599,22 +599,20 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             val_embeddings = [val_embeddings_cache[model].to("cuda") for model in models]
             val_fused_embeddings = biofuse_model(val_embeddings)
 
-            # Compute test accuracy using standalone_eval
-            val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+            # Compute validation accuracy using standalone_eval
+            val_accuracy, val_auc_roc, _, _ = standalone_eval(models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
 
             # Save this result
-            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
+            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, None, None)
 
-            if test_accuracy > best_test_acc:
-                best_test_acc = test_accuracy
+            if val_accuracy > best_val_acc:
                 best_val_acc = val_accuracy
                 best_config = (models, 0, fusion_method)
-                best_test_auc_roc = test_auc_roc
                 best_val_auc_roc = val_auc_roc
 
     print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
-    print(f"Best Test Accuracy: {best_test_acc:.4f}")
-    print(f"Best Test AUC-ROC: {best_test_auc_roc:.4f}")
+    print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+    print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
 
     # Only do the second pass if additional projection dims were passed
     if len(projection_dims) == 1 and projection_dims[0] == 0:
@@ -697,32 +695,32 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                 print(f"Early stopping at epoch {epoch+1}")
                 break
 
-        # Evaluate on test set
+        # Evaluate on validation set
         biofuse_model.eval()
         classifier.eval()
 
-        # Compute test accuracy using standalone_eval
-        val_accuracy, val_auc_roc, test_accuracy, test_auc_roc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+        # Compute validation accuracy using standalone_eval
+        val_accuracy, val_auc_roc, _, _ = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
 
         # Save this result
-        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
+        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, None, None)
 
-        if test_accuracy > best_test_acc:
-            best_test_acc = test_accuracy
+        if val_accuracy > best_val_acc:
             best_val_acc = val_accuracy
             best_config = (best_models, projection_dim, best_fusion_method)
-            best_test_auc_roc = test_auc_roc
-            best_val_auc_roc = val_auc_roc
-        # if the test accuracy is the same, check the AUC-ROC score
-        elif test_accuracy == best_test_acc and test_auc_roc > best_test_auc_roc:
-            best_val_acc = val_accuracy
-            best_config = (best_models, projection_dim, best_fusion_method)
-            best_test_auc_roc = test_auc_roc
             best_val_auc_roc = val_auc_roc
 
     print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
-    print(f"Best Test Accuracy: {best_test_acc:.4f}")
-    print(f"Best Test AUC-ROC: {best_test_auc_roc:.4f}")
+    print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+    print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
+
+    # Compute test accuracy for the best configuration
+    best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
+    best_biofuse_model = best_biofuse_model.to("cuda")
+    _, _, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)
+
+    print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
+    print(f"Test AUC-ROC for Best Configuration: {best_test_auc_roc:.4f}")
 
     # Save final results
     append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
