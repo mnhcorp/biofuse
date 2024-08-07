@@ -470,26 +470,26 @@ def compute_auc_roc(classifier, features, labels, num_classes):
 
 def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes): 
     """
-    Standalone evaluation of the BioFuse model on the test set using cached embeddings.
+    Standalone evaluation of the BioFuse model using cached embeddings.
 
     Args:
     - biofuse_model: The trained BioFuse model.
-    - classifier: The trained classifier.
     - train_embeddings: Cached train embeddings.
     - train_labels: Cached train labels.
-    - test_embeddings: Cached test embeddings.
-    - test_labels: Cached test labels.
+    - val_embeddings: Cached validation embeddings (can be None).
+    - val_labels: Cached validation labels (can be None).
+    - test_embeddings: Cached test embeddings (can be None).
+    - test_labels: Cached test labels (can be None).
     - num_classes: Number of classes in the dataset.
 
     Returns:
-    - float: The test accuracy.
-    - float: The test AUC-ROC score.
+    - tuple: (val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
+             Returns None for metrics if corresponding data is not provided.
     """   
     biofuse_model.eval()
     
     with torch.no_grad():
         # Process train embeddings
-        #train_fused_embeddings = biofuse_model([emb.to("cuda") for emb in train_embeddings.values()])
         train_fused_embeddings = biofuse_model([train_embeddings[model].to("cuda") for model in models])
         train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
         train_labels_np = train_labels.cpu().numpy()
@@ -497,36 +497,39 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
         # Train a new classifier on fused embeddings
         new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes)
 
-        # Process val embeddings
-        #val_fused_embeddings = biofuse_model([emb.to("cuda") for emb in val_embeddings.values()])
-        val_fused_embeddings = biofuse_model([val_embeddings[model].to("cuda") for model in models])
-        val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
-        val_labels_np = val_labels.cpu().numpy()
+        val_accuracy, val_auc_roc = None, None
+        if val_embeddings is not None and val_labels is not None:
+            # Process val embeddings
+            val_fused_embeddings = biofuse_model([val_embeddings[model].to("cuda") for model in models])
+            val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
+            val_labels_np = val_labels.cpu().numpy()
 
-        # Scale val embeddings
-        val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
+            # Scale val embeddings
+            val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
 
-        # Evaluate on validation set
-        val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
-        val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes)
+            # Evaluate on validation set
+            val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
+            val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes)
 
-        # Process test embeddings
-        #test_fused_embeddings = biofuse_model([emb.to("cuda") for emb in test_embeddings.values()])
-        test_fused_embeddings = biofuse_model([test_embeddings[model].to("cuda") for model in models])
-        test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
-        test_labels_np = test_labels.cpu().numpy()
+            print(f"Validation Accuracy: {val_accuracy:.4f}")
+            print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
-        # Scale test embeddings
-        test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
+        test_accuracy, test_auc_roc = None, None
+        if test_embeddings is not None and test_labels is not None:
+            # Process test embeddings
+            test_fused_embeddings = biofuse_model([test_embeddings[model].to("cuda") for model in models])
+            test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
+            test_labels_np = test_labels.cpu().numpy()
 
-        # Evaluate on test set
-        test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np)
-        test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes)
+            # Scale test embeddings
+            test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
 
-    print(f"Validation Accuracy: {val_accuracy:.4f}")
-    print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
-    print(f"Test Accuracy: {test_accuracy:.4f}")
-    print(f"Test AUC-ROC: {test_auc_roc:.4f}")
+            # Evaluate on test set
+            test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np)
+            test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes)
+
+            print(f"Test Accuracy: {test_accuracy:.4f}")
+            print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
