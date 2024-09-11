@@ -95,8 +95,9 @@ class PreTrainedEmbedding(nn.Module):
                 del model_output             
             elif self.model_name == "CheXagent":
                 #input = input_data['pixel_values']
-                outputs = self.model.vision_model(**(input_data)).last_hidden_state[:, 0, :]
-                #outputs = outputs.detach().cpu().numpy()
+                model_output = self.model.vision_model(**(input_data)).last_hidden_state[:, 0, :]
+                outputs = model_output.clone()
+                del model_output
             else:
                 outputs = self.model(input_data).last_hidden_state[:, 0, :]
         

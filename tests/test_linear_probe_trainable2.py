@@ -406,6 +406,9 @@ def train_classifier2(features, labels, num_classes):
     
     # Scale features
     features = scaler.fit_transform(features)
+    # record time for training
+    import time
+    start = time.time()
 
     if num_classes > 2:
         classifier = xgb.XGBClassifier(
@@ -415,7 +418,9 @@ def train_classifier2(features, labels, num_classes):
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
-            eval_metric='mlogloss'
+            eval_metric='mlogloss',
+            n_jobs=8,
+            tree_method='hist'           
         )
     else:
         classifier = xgb.XGBClassifier(
@@ -424,10 +429,17 @@ def train_classifier2(features, labels, num_classes):
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
-            eval_metric='logloss'
+            eval_metric='logloss',
+            n_jobs=8,
+            tree_method='hist'          
         )
+    
 
     classifier.fit(features, labels)
+
+    end = time.time()
+    print(f"Time taken to train XGBoost classifier: {end - start:.2f} seconds")
+
     return classifier, scaler
 
 def evaluate_model(classifier, features, labels):
@@ -589,10 +601,41 @@ def weighted_mean_with_penalty(val_acc, val_auc):
     penalized_score = score - acc_penalty - auc_penalty
     
     return penalized_score
+
+def get_configurations(model_names, file_path):
+    # Generate all combinations of pre-trained models
+    configurations = []
+    for r in range(1, len(model_names) + 1):
+        configurations.extend(itertools.combinations(model_names, r))
+
+    # Print the size of the configurations
+    print(f"Number of configurations: {len(configurations)}")    
+
+    # Check if the results file exists
+    if os.path.isfile(file_path):
+        # Read all rows, ignore first row
+        with open(file_path, mode='r') as file:
+            reader = csv.reader(file)
+            next(reader)
+            for row in reader:
+                # Extract the models and fusion method
+                models = row[2].split(',')                
+                
+                # Remove the models from the configurations
+                if tuple(models) in configurations:
+                    configurations.remove(tuple(models))
+
+        # Print the new configurations size 
+        print(f"Number of configurations after removing existing results: {len(configurations)}")
+
+    return configurations
         
 # Training the model with validation-informed adjustment
 def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods):
     set_seed(42)
+
+    file_path = f"results_{dataset}_{img_size}.csv"
+    configurations = get_configurations(model_names, file_path)
 
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)
 
@@ -600,12 +643,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     print("Extracting and caching embeddings...")
     train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names)
     val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names)
-    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names)
-
-    # Generate all combinations of pre-trained models
-    configurations = []
-    for r in range(1, len(model_names) + 1):
-        configurations.extend(itertools.combinations(model_names, r))
+    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names)   
 
     best_config = None
     best_val_acc = 0
