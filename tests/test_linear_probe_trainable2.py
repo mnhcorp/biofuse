@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from sklearn.linear_model import LogisticRegression
+from sklearn.multiclass import OneVsRestClassifier
 from medmnist import BreastMNIST
 import xgboost as xgb
 # progressbar
@@ -130,6 +131,18 @@ def custom_collate_fn(batch):
     images, labels = zip(*batch)
     return list(images), torch.tensor(labels)
 
+def parse_labels_from_path(path):
+    filename = os.path.basename(path)
+    parts = filename.split('_')
+    
+    # Extract all parts after the first one (train16672)
+    label_part = parts[1:]
+    
+    # For the last part, remove the file extension
+    label_part[-1] = label_part[-1].split('.')[0]
+    
+    return [int(label) for label in label_part]
+
 def load_data(dataset, img_size, train=True):
     """
     Load data for a given dataset.
@@ -181,10 +194,16 @@ def load_data(dataset, img_size, train=True):
     val_image_paths = glob.glob(f'{val_images_path}/*.png')
     test_image_paths = glob.glob(f'{test_images_path}/*.png')
 
-    # Extract labels from image paths
-    train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
-    val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
-    test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
+    if dataset == "chestmnist":
+        train_labels = [parse_labels_from_path(path) for path in train_image_paths]
+        val_labels = [parse_labels_from_path(path) for path in val_image_paths]
+        test_labels = [parse_labels_from_path(path) for path in test_image_paths]        
+    else:
+        # Labels are just _0.png or _1.png etc
+        train_labels = [int(path.split('_')[-1].split('.')[0]) for path in train_image_paths]
+        val_labels = [int(path.split('_')[-1].split('.')[0]) for path in val_image_paths]
+        test_labels = [int(path.split('_')[-1].split('.')[0]) for path in test_image_paths]
+
     
     # Construct the datasets
     full_train_dataset = BioFuseImageDataset(train_image_paths, train_labels)
@@ -214,6 +233,11 @@ def load_data(dataset, img_size, train=True):
     #     test_dataset = get_balanced_subset(test_dataset, 1000)
     # else:
     train_dataset = full_train_dataset
+    
+    # Use a smaller sample
+    train_dataset = Subset(train_dataset, range(200))
+    val_dataset = Subset(val_dataset, range(50))
+    test_dataset = Subset(test_dataset, range(50))
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
@@ -388,7 +412,7 @@ def train_classifier(features, labels, num_classes):
     classifier.fit(features, labels)
     return classifier, scaler
 
-def train_classifier2(features, labels, num_classes):
+def train_classifier2(features, labels, num_classes, multi_label=False):
     """
     Trains an XGBoost classifier using the provided features and labels.
 
@@ -410,7 +434,8 @@ def train_classifier2(features, labels, num_classes):
     import time
     start = time.time()
 
-    if num_classes > 2:
+    if num_classes > 2 and not multi_label:
+        print("Multi-class classification")
         classifier = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=num_classes,
@@ -423,7 +448,8 @@ def train_classifier2(features, labels, num_classes):
             tree_method='hist'           
         )
     else:
-        classifier = xgb.XGBClassifier(
+        print("Binary classification")
+        xgb_model = xgb.XGBClassifier(
             objective='binary:logistic',
             n_estimators=100,
             learning_rate=0.1,
@@ -433,7 +459,11 @@ def train_classifier2(features, labels, num_classes):
             n_jobs=8,
             tree_method='hist'          
         )
-    
+
+        if multi_label:
+            classifier = OneVsRestClassifier(xgb_model)
+        else:
+            classifier = xgb_model               
 
     classifier.fit(features, labels)
 
@@ -455,8 +485,15 @@ def evaluate_model(classifier, features, labels):
     - float: The accuracy of the classifier on the given features and labels.
     """
     print("Evaluating model...")
-    predictions = classifier.predict(features)
-    return accuracy_score(labels, predictions)
+    threshold = 0.5
+    y_score = np.array(classifier.predict(features))
+    y_pred = y_score > threshold
+    acc = 0
+    for i in range(labels.shape[1]):
+        acc += accuracy_score(labels[:, i], y_pred[:, i])
+    avg_accuracy = acc / labels.shape[1]
+    
+    return avg_accuracy
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes):
@@ -472,15 +509,24 @@ def compute_auc_roc(classifier, features, labels, num_classes):
     - float: The AUC-ROC score of the classifier on the given features and labels.
     """
     print("Computing AUC-ROC...")
-    if num_classes == 2:
-        predictions = classifier.predict_proba(features)[:, 1]
-        return roc_auc_score(labels, predictions)
-    else:
-        # use one-vs-all strategy
-        predictions = classifier.predict_proba(features)
-        return roc_auc_score(labels, predictions, multi_class='ovr')
+    y_score = np.array(classifier.predict_proba(features))    
+    auc_scores = []
+    for i in range(labels.shape[1]):
+        if len(np.unique(labels[:, i])) > 1:
+            auc = roc_auc_score(labels[:, i], y_score[:, i])
+            auc_scores.append(auc)
+    avg_auc = np.mean(auc_scores)
+    
+    return avg_auc
+    # if num_classes == 2:
+    #     predictions = classifier.predict_proba(features)[:, 1]
+    #     return roc_auc_score(labels, predictions)
+    # else:
+    #     # use one-vs-all strategy
+    #     predictions = classifier.predict_proba(features)
+    #     return roc_auc_score(labels, predictions, multi_class='ovr')
 
-def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes): 
+def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
     """
     Standalone evaluation of the BioFuse model using cached embeddings.
 
@@ -499,15 +545,22 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
              Returns None for metrics if corresponding data is not provided.
     """   
     biofuse_model.eval()
-    
+
+    multi_label = False
+    if dataset == "chestmnist":
+        multi_label = True
+
     with torch.no_grad():
         # Process train embeddings
         train_fused_embeddings = biofuse_model([train_embeddings[model].to("cuda") for model in models])
         train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
         train_labels_np = train_labels.cpu().numpy()
 
+        if multi_label:
+            train_labels_np = train_labels_np.view(-1,14)        
+            
         # Train a new classifier on fused embeddings
-        new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes)
+        new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
 
         val_accuracy, val_auc_roc = None, None
         if val_embeddings is not None and val_labels is not None:
@@ -515,6 +568,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             val_fused_embeddings = biofuse_model([val_embeddings[model].to("cuda") for model in models])
             val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
             val_labels_np = val_labels.cpu().numpy()
+
+            # if chestmnist, reshape the labels for multi-label classification
+            if multi_label:
+                val_labels_np = val_labels_np.view(-1,14)
 
             # Scale val embeddings
             val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
@@ -532,6 +589,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             test_fused_embeddings = biofuse_model([test_embeddings[model].to("cuda") for model in models])
             test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
             test_labels_np = test_labels.cpu().numpy()
+
+            # if chestmnist, reshape the labels for multi-label classification
+            if multi_label:
+                test_labels_np = test_labels_np.reshape(-1,14)
 
             # Scale test embeddings
             test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
@@ -670,7 +731,16 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             val_fused_embeddings = biofuse_model(val_embeddings)
 
             # Compute validation accuracy using standalone_eval
-            val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)
+            val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(models, 
+                                                                            biofuse_model, 
+                                                                            train_embeddings_cache, 
+                                                                            train_labels, 
+                                                                            val_embeddings_cache, 
+                                                                            val_labels, 
+                                                                            test_embeddings_cache, 
+                                                                            test_labels, 
+                                                                            num_classes,
+                                                                            dataset)
             harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
             # Save this result
@@ -773,7 +843,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         classifier.eval()
 
         # Compute validation accuracy using standalone_eval
-        val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)        
+        val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)        
         harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
         # Save this result
@@ -794,7 +864,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Compute test accuracy for the best configuration
     best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
     best_biofuse_model = best_biofuse_model.to("cuda")
-    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes)
+    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)
     #best_harmonic_mean = harmonic_mean(best_val_acc, best_val_auc)
 
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
