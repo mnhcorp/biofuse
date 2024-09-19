@@ -627,10 +627,17 @@ def extract_and_cache_embeddings(dataloader, models):
             cached_embeddings[model].append(embeddings.squeeze(0))
         labels.append(label)
 
-    # Stack embeddings and convert labels to tensor and remove the batch dimension
+    # Stack embeddings and convert labels to tensor
     for model in models:
-        cached_embeddings[model] = torch.stack(cached_embeddings[model]).squeeze(1)
-    labels = torch.tensor(labels)
+        cached_embeddings[model] = torch.stack(cached_embeddings[model])
+    
+    # Handle both single-label and multi-label cases
+    if isinstance(labels[0], torch.Tensor) and labels[0].dim() > 0:
+        # Multi-label case
+        labels = torch.stack(labels)
+    else:
+        # Single-label case
+        labels = torch.tensor(labels)
     
     return cached_embeddings, labels
 
