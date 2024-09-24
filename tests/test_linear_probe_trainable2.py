@@ -235,9 +235,9 @@ def load_data(dataset, img_size, train=True):
     train_dataset = full_train_dataset
     
     # Use a smaller sample
-    train_dataset = Subset(train_dataset, range(200))
-    val_dataset = Subset(val_dataset, range(50))
-    test_dataset = Subset(test_dataset, range(50))
+    # train_dataset = Subset(train_dataset, range(200))
+    # val_dataset = Subset(val_dataset, range(50))
+    # test_dataset = Subset(test_dataset, range(50))
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
@@ -554,10 +554,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
         # Process train embeddings
         train_fused_embeddings = biofuse_model([train_embeddings[model].to("cuda") for model in models])
         train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
-        train_labels_np = train_labels.cpu().numpy()
-
         if multi_label:
-            train_labels_np = train_labels_np.view(-1,14)        
+            train_labels = train_labels.view(-1,14)
+
+        train_labels_np = train_labels.cpu().numpy()
             
         # Train a new classifier on fused embeddings
         new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
@@ -567,12 +567,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             # Process val embeddings
             val_fused_embeddings = biofuse_model([val_embeddings[model].to("cuda") for model in models])
             val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
-            val_labels_np = val_labels.cpu().numpy()
-
-            # if chestmnist, reshape the labels for multi-label classification
             if multi_label:
-                val_labels_np = val_labels_np.view(-1,14)
-
+                val_labels = val_labels.view(-1,14)
+            val_labels_np = val_labels.cpu().numpy()
+            
             # Scale val embeddings
             val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
 
@@ -588,12 +586,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             # Process test embeddings
             test_fused_embeddings = biofuse_model([test_embeddings[model].to("cuda") for model in models])
             test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
-            test_labels_np = test_labels.cpu().numpy()
-
-            # if chestmnist, reshape the labels for multi-label classification
             if multi_label:
-                test_labels_np = test_labels_np.reshape(-1,14)
-
+                test_labels = test_labels.view(-1,14)
+            test_labels_np = test_labels.cpu().numpy()
+            
             # Scale test embeddings
             test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
 
@@ -717,6 +713,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     best_val_acc = 0
     best_test_acc = 0
     best_val_auc_roc = 0
+    best_test_auc_roc = 0
     best_harmonic_mean = 0
 
     # First pass: Evaluate configurations with a single epoch
@@ -758,17 +755,17 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                 best_val_acc = val_accuracy
                 best_config = (models, 0, fusion_method)
                 best_val_auc_roc = val_auc_roc
-                best_harmonic_mean = harmonic_mean_val
+                best_harmonic_mean = harmonic_mean_val                
 
-    print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
-    print(f"Best Validation Accuracy: {best_val_acc:.4f}")
-    print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
+    # print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
+    # print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+    # print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
 
     # Only do the second pass if additional projection dims were passed
     if len(projection_dims) == 1 and projection_dims[0] == 0:
         print("\nNo projection dims provided for the second")
         # save final results
-        append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
+        #append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
         return
 
     # Second pass: Train with learnable layers using the best configuration
