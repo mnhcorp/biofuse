@@ -632,7 +632,7 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split):
         cached_embeddings[model] = torch.stack(model_embeddings)
         
         # Only update labels if they haven't been set yet
-        if not labels:
+        if labels.numel() == 0:
             if isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
                 labels = torch.stack(model_labels)
             else:
