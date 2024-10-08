@@ -34,17 +34,17 @@ from biofuse.models.processor import MultiModelPreprocessor
 PATIENCE = 25
 CACHE_DIR = '/data/biofuse-embedding-cache'
 
-def get_cache_path(dataset, model, img_size):
-    return os.path.join(CACHE_DIR, f'{dataset}_{model}_{img_size}.pkl')
+def get_cache_path(dataset, model, img_size, split):
+    return os.path.join(CACHE_DIR, f'{dataset}_{model}_{img_size}_{split}.pkl')
 
-def save_embeddings_to_cache(embeddings, labels, dataset, model, img_size):
-    cache_path = get_cache_path(dataset, model, img_size)
+def save_embeddings_to_cache(embeddings, labels, dataset, model, img_size, split):
+    cache_path = get_cache_path(dataset, model, img_size, split)
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     with open(cache_path, 'wb') as f:
         pickle.dump((embeddings, labels), f)
 
-def load_embeddings_from_cache(dataset, model, img_size):
-    cache_path = get_cache_path(dataset, model, img_size)
+def load_embeddings_from_cache(dataset, model, img_size, split):
+    cache_path = get_cache_path(dataset, model, img_size, split)
     if os.path.exists(cache_path):
         with open(cache_path, 'rb') as f:
             return pickle.load(f)
@@ -605,15 +605,15 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
-def extract_and_cache_embeddings(dataloader, models, dataset, img_size):
+def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split):
     cached_embeddings = {model: [] for model in models}
     labels = []
     
     for model in models:
-        cached_data = load_embeddings_from_cache(dataset, model, img_size)
+        cached_data = load_embeddings_from_cache(dataset, model, img_size, split)
         if cached_data is not None:
             cached_embeddings[model], labels = cached_data
-            print(f"Loaded cached embeddings for {model}")
+            print(f"Loaded cached embeddings for {model} ({split})")
             continue
 
         extractor = PreTrainedEmbedding(model)
@@ -622,7 +622,7 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size):
         model_embeddings = []
         model_labels = []
 
-        for image, label in tqdm(dataloader, desc=f"Extracting embeddings for {model}"):
+        for image, label in tqdm(dataloader, desc=f"Extracting embeddings for {model} ({split})"):
             processed_image = preprocessor.preprocess(image[0])[0]
             with torch.no_grad():
                 embeddings = extractor(processed_image)
@@ -638,8 +638,8 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size):
             else:
                 labels = torch.tensor(model_labels)
 
-        save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size)
-        print(f"Saved embeddings for {model} to cache")
+        save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size, split)
+        print(f"Saved embeddings for {model} ({split}) to cache")
 
     return cached_embeddings, labels
 
@@ -716,9 +716,9 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
-    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size)
-    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size)
-    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size)
+    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size, 'train')
+    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size, 'val')
+    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size, 'test')
 
     best_config = None
     best_val_acc = 0
