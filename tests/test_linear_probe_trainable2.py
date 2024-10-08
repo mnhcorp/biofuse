@@ -21,6 +21,8 @@ import random
 import argparse
 #import ipdb
 import itertools
+import os
+import pickle
 
 # Trainable layer imports
 import torch.optim as optim
@@ -30,6 +32,23 @@ import torch.nn as nn
 from biofuse.models.processor import MultiModelPreprocessor
 
 PATIENCE = 25
+CACHE_DIR = '/data/biofuse-embedding-cache'
+
+def get_cache_path(dataset, model, img_size):
+    return os.path.join(CACHE_DIR, f'{dataset}_{model}_{img_size}.pkl')
+
+def save_embeddings_to_cache(embeddings, labels, dataset, model, img_size):
+    cache_path = get_cache_path(dataset, model, img_size)
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, 'wb') as f:
+        pickle.dump((embeddings, labels), f)
+
+def load_embeddings_from_cache(dataset, model, img_size):
+    cache_path = get_cache_path(dataset, model, img_size)
+    if os.path.exists(cache_path):
+        with open(cache_path, 'rb') as f:
+            return pickle.load(f)
+    return None
 
 def set_seed(seed: int = 42) -> None:
     """
@@ -586,39 +605,42 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
-def extract_and_cache_embeddings(dataloader, models):
+def extract_and_cache_embeddings(dataloader, models, dataset, img_size):
     cached_embeddings = {model: [] for model in models}
     labels = []
-        
-    # Set up the model and preprocessors
-    extractors = {}
-    preprocessors = {}
+    
     for model in models:
-        extractors[model] = PreTrainedEmbedding(model)
-        preprocessors[model] = MultiModelPreprocessor([model])       
+        cached_data = load_embeddings_from_cache(dataset, model, img_size)
+        if cached_data is not None:
+            cached_embeddings[model], labels = cached_data
+            print(f"Loaded cached embeddings for {model}")
+            continue
 
-    # Use the technique from generate_embeddings to extract embeddings
-    for image, label in tqdm(dataloader, desc="Extracting embeddings"):        
-        for model in models:
-            # Run it through the preprocessor
-            processed_image = preprocessors[model].preprocess(image[0])[0]        
+        extractor = PreTrainedEmbedding(model)
+        preprocessor = MultiModelPreprocessor([model])
+
+        model_embeddings = []
+        model_labels = []
+
+        for image, label in tqdm(dataloader, desc=f"Extracting embeddings for {model}"):
+            processed_image = preprocessor.preprocess(image[0])[0]
             with torch.no_grad():
-                embeddings = extractors[model](processed_image)
-            cached_embeddings[model].append(embeddings.squeeze(0))
-        labels.append(label)
+                embeddings = extractor(processed_image)
+            model_embeddings.append(embeddings.squeeze(0))
+            model_labels.append(label)
 
-    # Stack embeddings and convert labels to tensor
-    for model in models:
-        cached_embeddings[model] = torch.stack(cached_embeddings[model])
-    
-    # Handle both single-label and multi-label cases
-    if isinstance(labels[0], torch.Tensor) and labels[0].dim() > 0:
-        # Multi-label case
-        labels = torch.stack(labels)
-    else:
-        # Single-label case
-        labels = torch.tensor(labels)
-    
+        cached_embeddings[model] = torch.stack(model_embeddings)
+        
+        # Only update labels if they haven't been set yet
+        if not labels:
+            if isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
+                labels = torch.stack(model_labels)
+            else:
+                labels = torch.tensor(model_labels)
+
+        save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size)
+        print(f"Saved embeddings for {model} to cache")
+
     return cached_embeddings, labels
 
 def harmonic_mean(val_acc, val_auc):
@@ -694,9 +716,9 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
-    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names)
-    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names)
-    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names)   
+    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size)
+    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size)
+    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size)
 
     best_config = None
     best_val_acc = 0
