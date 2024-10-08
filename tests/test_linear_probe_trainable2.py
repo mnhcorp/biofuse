@@ -458,7 +458,7 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         classifier = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=num_classes,
-            n_estimators=100,
+            n_estimators=250,
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
@@ -470,7 +470,7 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         print("Binary classification")
         xgb_model = xgb.XGBClassifier(
             objective='binary:logistic',
-            n_estimators=100,
+            n_estimators=250,
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
@@ -631,12 +631,13 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split):
 
         cached_embeddings[model] = torch.stack(model_embeddings)
         
-        # Only update labels if they haven't been set yet
+        #Only update labels if they haven't been set yet
         if labels.numel() == 0:
             if isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
                 labels = torch.stack(model_labels)
             else:
                 labels = torch.tensor(model_labels)
+       
 
         save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size, split)
         print(f"Saved embeddings for {model} ({split}) to cache")
