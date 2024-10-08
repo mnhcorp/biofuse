@@ -485,15 +485,8 @@ def evaluate_model(classifier, features, labels):
     - float: The accuracy of the classifier on the given features and labels.
     """
     print("Evaluating model...")
-    threshold = 0.5
-    y_score = np.array(classifier.predict(features))
-    y_pred = y_score > threshold
-    acc = 0
-    for i in range(labels.shape[1]):
-        acc += accuracy_score(labels[:, i], y_pred[:, i])
-    avg_accuracy = acc / labels.shape[1]
-    
-    return avg_accuracy
+    predictions = classifier.predict(features)
+    return accuracy_score(labels, predictions)
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes):
@@ -509,23 +502,14 @@ def compute_auc_roc(classifier, features, labels, num_classes):
     - float: The AUC-ROC score of the classifier on the given features and labels.
     """
     print("Computing AUC-ROC...")
-    y_score = np.array(classifier.predict_proba(features))    
-    auc_scores = []
-    for i in range(labels.shape[1]):
-        if len(np.unique(labels[:, i])) > 1:
-            auc = roc_auc_score(labels[:, i], y_score[:, i])
-            auc_scores.append(auc)
-    avg_auc = np.mean(auc_scores)
+    if num_classes == 2:
+        predictions = classifier.predict_proba(features)[:, 1]
+        return roc_auc_score(labels, predictions)
+    else:
+        # use one-vs-all strategy
+        predictions = classifier.predict_proba(features)
+        return roc_auc_score(labels, predictions, multi_class='ovr')
     
-    return avg_auc
-    # if num_classes == 2:
-    #     predictions = classifier.predict_proba(features)[:, 1]
-    #     return roc_auc_score(labels, predictions)
-    # else:
-    #     # use one-vs-all strategy
-    #     predictions = classifier.predict_proba(features)
-    #     return roc_auc_score(labels, predictions, multi_class='ovr')
-
 def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
     """
     Standalone evaluation of the BioFuse model using cached embeddings.
@@ -666,7 +650,11 @@ def weighted_mean_with_penalty(val_acc, val_auc):
     
     return penalized_score
 
-def get_configurations(model_names, file_path):
+def get_configurations(model_names, file_path, single):
+    # if single, there is only a single configuration with all models
+    if single:
+        return [tuple(model_names)]
+    
     # Generate all combinations of pre-trained models
     configurations = []
     for r in range(1, len(model_names) + 1):
@@ -675,31 +663,32 @@ def get_configurations(model_names, file_path):
     # Print the size of the configurations
     print(f"Number of configurations: {len(configurations)}")    
 
-    # Check if the results file exists
-    if os.path.isfile(file_path):
-        # Read all rows, ignore first row
-        with open(file_path, mode='r') as file:
-            reader = csv.reader(file)
-            next(reader)
-            for row in reader:
-                # Extract the models and fusion method
-                models = row[2].split(',')                
+    # # Check if the results file exists
+    # if os.path.isfile(file_path):
+    #     # Read all rows, ignore first row
+    #     with open(file_path, mode='r') as file:
+    #         reader = csv.reader(file)
+    #         next(reader)
+    #         for row in reader:
+    #             # Extract the models and fusion method
+    #             models = row[2].split(',')                
                 
-                # Remove the models from the configurations
-                if tuple(models) in configurations:
-                    configurations.remove(tuple(models))
+    #             # Remove the models from the configurations
+    #             if tuple(models) in configurations:
+    #                 configurations.remove(tuple(models))
 
-        # Print the new configurations size 
-        print(f"Number of configurations after removing existing results: {len(configurations)}")
+    #     # Print the new configurations size 
+    #     print(f"Number of configurations after removing existing results: {len(configurations)}")
 
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
-    configurations = get_configurations(model_names, file_path)
+    configurations = get_configurations(model_names, file_path, single)
+    print(configurations)
 
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)
 
@@ -912,7 +901,11 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
         if test_accuracy is None:
             test_accuracy = 0
             test_auc = 0
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}', f'{harmonic_mean_val:.3f}'])
+
+        
+        #writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}', f'{harmonic_mean_val:.3f}'])
+        # write the results as XX.YY insead of 0.XYZ
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.4f}', f'{val_auc:.4f}', f'{test_accuracy:.4f}', f'{test_auc:.4f}', f'{harmonic_mean_val:.4f}'])
 
 def parse_projections(proj_str):
     if proj_str:
@@ -929,6 +922,8 @@ def main():
     parser.add_argument('--models', type=str, default='BioMedCLIP', help='List of pre-trained models, delimited by comma')
     parser.add_argument('--projections', type=parse_projections, default=[0], help='List of projection dimensions, delimited by comma')
     parser.add_argument('--fusion_methods', type=str, default='concat', help='Fusion methods separated by comma')
+    # add --single
+    parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
     args = parser.parse_args()
 
     train_model(args.dataset, 
@@ -936,7 +931,8 @@ def main():
                 args.num_epochs, 
                 args.img_size,
                 args.projections,
-                args.fusion_methods.split(','))
+                args.fusion_methods.split(','),
+                args.single)
     
 if __name__ == "__main__":
     main()
