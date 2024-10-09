@@ -23,6 +23,7 @@ import argparse
 import itertools
 import os
 import pickle
+import wandb
 
 # Trainable layer imports
 import torch.optim as optim
@@ -431,7 +432,7 @@ def train_classifier(features, labels, num_classes):
     classifier.fit(features, labels)
     return classifier, scaler
 
-def train_classifier2(features, labels, num_classes, multi_label=False):
+def train_classifier2(features, labels, num_classes, multi_label=False, use_wandb=False):
     """
     Trains an XGBoost classifier using the provided features and labels.
 
@@ -439,9 +440,11 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         features (array-like): The input features for training the classifier.
         labels (array-like): The corresponding labels for the input features.
         num_classes (int): The number of classes in the classification problem.
+        multi_label (bool): Whether the problem is multi-label classification.
+        use_wandb (bool): Whether to use Weights & Biases for hyperparameter tuning.
 
     Returns:
-        None
+        tuple: A tuple containing the trained classifier and the scaler.
     """
     print("Training XGBoost classifier...")
 
@@ -449,18 +452,30 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
     
     # Scale features
     features = scaler.fit_transform(features)
+    
     # record time for training
     import time
     start = time.time()
+
+    if use_wandb:
+        # Define the hyperparameter search space
+        config = wandb.config
+        n_estimators = config.n_estimators
+        learning_rate = config.learning_rate
+        max_depth = config.max_depth
+    else:
+        n_estimators = 50
+        learning_rate = 0.1
+        max_depth = 6
 
     if num_classes > 2 and not multi_label:
         print("Multi-class classification")
         classifier = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=num_classes,
-            n_estimators=50,
-            learning_rate=0.1,
-            max_depth=6,
+            n_estimators=n_estimators,
+            learning_rate=learning_rate,
+            max_depth=max_depth,
             use_label_encoder=False,
             eval_metric='mlogloss',
             n_jobs=8,
@@ -470,9 +485,9 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         print("Binary classification")
         xgb_model = xgb.XGBClassifier(
             objective='binary:logistic',
-            n_estimators=50,
-            learning_rate=0.1,
-            max_depth=6,
+            n_estimators=n_estimators,
+            learning_rate=learning_rate,
+            max_depth=max_depth,
             use_label_encoder=False,
             eval_metric='logloss',
             n_jobs=8,
@@ -529,7 +544,7 @@ def compute_auc_roc(classifier, features, labels, num_classes):
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
     
-def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
+def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset, use_wandb=False): 
     """
     Standalone evaluation of the BioFuse model using cached embeddings.
 
@@ -542,6 +557,7 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
     - test_embeddings: Cached test embeddings (can be None).
     - test_labels: Cached test labels (can be None).
     - num_classes: Number of classes in the dataset.
+    - use_wandb: Whether to use Weights & Biases for hyperparameter tuning.
 
     Returns:
     - tuple: (val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
@@ -563,7 +579,7 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
         train_labels_np = train_labels.cpu().numpy()
             
         # Train a new classifier on fused embeddings
-        new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+        new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label, use_wandb)
 
         val_accuracy, val_auc_roc = None, None
         if val_embeddings is not None and val_labels is not None:
@@ -584,6 +600,9 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             print(f"Validation Accuracy: {val_accuracy:.4f}")
             print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
+            if use_wandb:
+                wandb.log({"val_accuracy": val_accuracy, "val_auc_roc": val_auc_roc})
+
         test_accuracy, test_auc_roc = None, None
         if test_embeddings is not None and test_labels is not None:
             # Process test embeddings
@@ -602,6 +621,9 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
             print(f"Test Accuracy: {test_accuracy:.4f}")
             print(f"Test AUC-ROC: {test_auc_roc:.4f}")
+
+            if use_wandb:
+                wandb.log({"test_accuracy": test_accuracy, "test_auc_roc": test_auc_roc})
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
@@ -769,7 +791,6 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                 best_val_auc_roc = val_auc_roc
                 best_harmonic_mean = harmonic_mean_val   
 
-
     print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
     print(f"Best Validation Accuracy: {best_val_acc:.4f}")
     print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
@@ -777,14 +798,32 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Compute test accuracy for the best configuration
     best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
     best_biofuse_model = best_biofuse_model.to("cuda")
-    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)
-    #best_harmonic_mean = harmonic_mean(best_val_acc, best_val_auc)
+
+    # Use wandb for hyperparameter tuning
+    wandb.init(project="biofuse-xgboost-tuning", config={
+        "n_estimators": {"values": [50, 100, 200]},
+        "learning_rate": {"values": [0.01, 0.1, 0.3]},
+        "max_depth": {"values": [3, 6, 9]}
+    })
+
+    # Get the best hyperparameters
+    best_params = wandb.config
+
+    # Train the classifier with the best hyperparameters
+    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(
+        best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, 
+        val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, 
+        num_classes, dataset, use_wandb=True
+    )
 
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
     print(f"Test AUC-ROC for Best Configuration: {best_test_auc_roc:.4f}")
 
     # Save final results
     append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
+
+    # Finish the wandb run
+    wandb.finish()
 
 
 def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc, harmonic_mean_val=0):
