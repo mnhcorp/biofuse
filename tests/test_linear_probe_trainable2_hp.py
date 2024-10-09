@@ -877,11 +877,14 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     print(f"Best Validation Accuracy: {best_val_acc:.4f}")
     print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
 
+    print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
+    print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+    print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
+
     # Compute test accuracy for the best configuration
     best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
     best_biofuse_model = best_biofuse_model.to("cuda")
-    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)
-    #best_harmonic_mean = harmonic_mean(best_val_acc, best_val_auc)
+    _, _, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)
 
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
     print(f"Test AUC-ROC for Best Configuration: {best_test_auc_roc:.4f}")
