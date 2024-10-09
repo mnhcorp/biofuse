@@ -728,7 +728,7 @@ def get_configurations(model_names, file_path, single):
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, n_estimators=100, learning_rate=0.1, max_depth=6):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
@@ -801,9 +801,9 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
     # Use wandb for hyperparameter tuning
     wandb.init(project="biofuse-xgboost-tuning", config={
-        "n_estimators": {"values": [50, 100, 200]},
-        "learning_rate": {"values": [0.01, 0.1, 0.3]},
-        "max_depth": {"values": [3, 6, 9]}
+        "n_estimators": n_estimators,
+        "learning_rate": learning_rate,
+        "max_depth": max_depth
     })
 
     # Get the best hyperparameters
@@ -881,8 +881,13 @@ def main():
     parser.add_argument('--models', type=str, default='BioMedCLIP', help='List of pre-trained models, delimited by comma')
     parser.add_argument('--projections', type=parse_projections, default=[0], help='List of projection dimensions, delimited by comma')
     parser.add_argument('--fusion_methods', type=str, default='concat', help='Fusion methods separated by comma')
-    # add --single
     parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
+    
+    # XGBoost parameters
+    parser.add_argument('--n_estimators', type=int, default=100, help='Number of trees in XGBoost')
+    parser.add_argument('--learning_rate', type=float, default=0.1, help='Learning rate for XGBoost')
+    parser.add_argument('--max_depth', type=int, default=6, help='Maximum tree depth for XGBoost')
+    
     args = parser.parse_args()
 
     train_model(args.dataset, 
@@ -891,7 +896,10 @@ def main():
                 args.img_size,
                 args.projections,
                 args.fusion_methods.split(','),
-                args.single)
+                args.single,
+                n_estimators=args.n_estimators,
+                learning_rate=args.learning_rate,
+                max_depth=args.max_depth)
     
 if __name__ == "__main__":
     main()
