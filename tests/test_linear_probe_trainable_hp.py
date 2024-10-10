@@ -463,13 +463,30 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
         n_estimators = config.n_estimators
         learning_rate = config.learning_rate
         max_depth = config.max_depth
+        colsample_bytree = config.colsample_bytree
+        max_bin = config.max_bin
+        max_leaves = config.max_leaves
+        min_child_weight = config.min_child_weight
+        reg_alpha = config.reg_alpha
+        reg_lambda = config.reg_lambda
+        subsample = config.subsample
     else:
         n_estimators = 1
         learning_rate = 0.1
         max_depth = 1
+        colsample_bytree = 0.6
+        max_bin = 128
+        max_leaves = 31
+        min_child_weight = 3
+        reg_alpha = 1
+        reg_lambda = 10
+        subsample = 0.8
 
     # log the params we are using
-    print(f"n_estimators: {n_estimators}, learning_rate: {learning_rate}, max_depth: {max_depth}")
+    print(f"n_estimators: {n_estimators}, learning_rate: {learning_rate}, max_depth: {max_depth}, "
+          f"colsample_bytree: {colsample_bytree}, max_bin: {max_bin}, max_leaves: {max_leaves}, "
+          f"min_child_weight: {min_child_weight}, reg_alpha: {reg_alpha}, reg_lambda: {reg_lambda}, "
+          f"subsample: {subsample}")
 
     eval_metric = 'logloss'
     if num_classes > 2 and not multi_label:
@@ -480,6 +497,13 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
             n_estimators=n_estimators,
             learning_rate=learning_rate,
             max_depth=max_depth,
+            colsample_bytree=colsample_bytree,
+            max_bin=max_bin,
+            max_leaves=max_leaves,
+            min_child_weight=min_child_weight,
+            reg_alpha=reg_alpha,
+            reg_lambda=reg_lambda,
+            subsample=subsample,
             use_label_encoder=False,
             eval_metric='mlogloss',
             n_jobs=32,
@@ -494,6 +518,13 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
             n_estimators=n_estimators,
             learning_rate=learning_rate,
             max_depth=max_depth,
+            colsample_bytree=colsample_bytree,
+            max_bin=max_bin,
+            max_leaves=max_leaves,
+            min_child_weight=min_child_weight,
+            reg_alpha=reg_alpha,
+            reg_lambda=reg_lambda,
+            subsample=subsample,
             use_label_encoder=False,
             eval_metric='logloss',
             n_jobs=32,
@@ -896,6 +927,13 @@ def main():
     parser.add_argument('--n_estimators', type=int, default=100, help='Number of trees in XGBoost')
     parser.add_argument('--learning_rate', type=float, default=0.1, help='Learning rate for XGBoost')
     parser.add_argument('--max_depth', type=int, default=6, help='Maximum tree depth for XGBoost')
+    parser.add_argument('--colsample_bytree', type=float, default=0.6, help='Subsample ratio of columns when constructing each tree')
+    parser.add_argument('--max_bin', type=int, default=128, help='Maximum number of discrete bins to bucket continuous features')
+    parser.add_argument('--max_leaves', type=int, default=31, help='Maximum number of leaves in each tree')
+    parser.add_argument('--min_child_weight', type=float, default=3, help='Minimum sum of instance weight needed in a child')
+    parser.add_argument('--reg_alpha', type=float, default=1, help='L1 regularization term on weights')
+    parser.add_argument('--reg_lambda', type=float, default=10, help='L2 regularization term on weights')
+    parser.add_argument('--subsample', type=float, default=0.8, help='Subsample ratio of the training instances')
 
     args = parser.parse_args()
     wandb.init(project="xgboost-biofuse", config=args)
