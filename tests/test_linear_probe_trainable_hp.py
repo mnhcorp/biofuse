@@ -464,10 +464,14 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
         learning_rate = config.learning_rate
         max_depth = config.max_depth
     else:
-        n_estimators = 50
+        n_estimators = 1
         learning_rate = 0.1
-        max_depth = 6
+        max_depth = 1
 
+    # log the params we are using
+    print(f"n_estimators: {n_estimators}, learning_rate: {learning_rate}, max_depth: {max_depth}")
+
+    eval_metric = 'logloss'
     if num_classes > 2 and not multi_label:
         print("Multi-class classification")
         classifier = xgb.XGBClassifier(
@@ -478,9 +482,11 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
             max_depth=max_depth,
             use_label_encoder=False,
             eval_metric='mlogloss',
-            n_jobs=8,
-            tree_method='hist'           
+            n_jobs=32,
+            tree_method='gpu_hist',
+            verbose=1          
         )
+        eval_metric = 'mlogloss'
     else:
         print("Binary classification")
         xgb_model = xgb.XGBClassifier(
@@ -490,8 +496,8 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
             max_depth=max_depth,
             use_label_encoder=False,
             eval_metric='logloss',
-            n_jobs=8,
-            tree_method='hist'          
+            n_jobs=32,
+            tree_method='gpu_hist'          
         )
 
         if multi_label:
@@ -499,7 +505,7 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
         else:
             classifier = xgb_model               
 
-    classifier.fit(features, labels)
+    classifier.fit(features, labels, verbose=True, early_stopping_rounds=50, eval_set=[(features, labels)])
 
     end = time.time()
     print(f"Time taken to train XGBoost classifier: {end - start:.2f} seconds")
@@ -731,6 +737,17 @@ def get_configurations(model_names, file_path, single):
 def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, n_estimators=100, learning_rate=0.1, max_depth=6):
     set_seed(42)
 
+    model_legend = { 'BC': 'BioMedCLIP',
+                    'PC': 'PubMedCLIP',
+                    'CO': 'CONCH',
+                    'RD': 'rad-dino',
+                    'UN': 'UNI',
+                    'PG': 'Prov-GigaPath',
+                    'HB': 'Hibou-B',
+                    'CA': 'CheXagent' }
+    # replace the model names with the actual model names
+    model_names = [model_legend[model] for model in model_names]
+
     file_path = f"results_{dataset}_{img_size}.csv"
     configurations = get_configurations(model_names, file_path, single)
     print(configurations)
@@ -753,6 +770,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # First pass: Evaluate configurations with a single epoch
     print("\nFirst pass: Evaluating model combinations")
     for models in configurations:
+        print(f"\nEvaluating configuration: Models: {models}")
         for fusion_method in fusion_methods:
             print(f"\nEvaluating configuration: Models: {models}, Fusion method: {fusion_method}")
 
@@ -768,46 +786,35 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             val_embeddings = [val_embeddings_cache[model].to("cuda") for model in models]
             val_fused_embeddings = biofuse_model(val_embeddings)
 
-            # Compute validation accuracy using standalone_eval
-            val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(models, 
-                                                                            biofuse_model, 
-                                                                            train_embeddings_cache, 
-                                                                            train_labels, 
-                                                                            val_embeddings_cache, 
-                                                                            val_labels, 
-                                                                            test_embeddings_cache, 
-                                                                            test_labels, 
-                                                                            num_classes,
-                                                                            dataset)
-            harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
+            harmonic_mean_val = 0
 
             # Save this result
-            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
+            #append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
 
             #if val_accuracy > best_val_acc:
-            if harmonic_mean_val > best_harmonic_mean:
-                best_val_acc = val_accuracy
-                best_config = (models, 0, fusion_method)
-                best_val_auc_roc = val_auc_roc
-                best_harmonic_mean = harmonic_mean_val   
+            # if harmonic_mean_val > best_harmonic_mean:
+            #best_val_acc = val_accuracy
+            best_config = (models, 0, fusion_method)
+            # best_val_auc_roc = val_auc_roc
+            # best_harmonic_mean = harmonic_mean_val   
 
     print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
     print(f"Best Validation Accuracy: {best_val_acc:.4f}")
     print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
 
     # Compute test accuracy for the best configuration
-    best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
+    best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=0)
     best_biofuse_model = best_biofuse_model.to("cuda")
 
     # Use wandb for hyperparameter tuning
-    wandb.init(project="biofuse-xgboost-tuning", config={
-        "n_estimators": n_estimators,
-        "learning_rate": learning_rate,
-        "max_depth": max_depth
-    })
+    # wandb.init(project="biofuse-xgboost-tuning", config={
+    #     "n_estimators": n_estimators,
+    #     "learning_rate": learning_rate,
+    #     "max_depth": max_depth
+    # })
 
     # Get the best hyperparameters
-    best_params = wandb.config
+    #best_params = wandb.config
 
     # Train the classifier with the best hyperparameters
     best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(
@@ -816,6 +823,8 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         num_classes, dataset, use_wandb=True
     )
 
+    print(f"Validation Accuracy for Best Configuration: {best_val_acc:.4f}")
+    print(f"Validation AUC-ROC for Best Configuration: {best_val_auc:.4f}")
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
     print(f"Test AUC-ROC for Best Configuration: {best_test_auc_roc:.4f}")
 
@@ -875,10 +884,10 @@ def parse_projections(proj_str):
 
 def main():
     parser = argparse.ArgumentParser(description='BioFuse v1.1 (AutoFuse)')
-    parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--img_size', type=int, default=28, help='Image size')
+    parser.add_argument('--num_epochs', type=int, default=1, help='Number of epochs')
+    parser.add_argument('--img_size', type=int, default=224, help='Image size')
     parser.add_argument('--dataset', type=str, default='breastmnist', help='Dataset')
-    parser.add_argument('--models', type=str, default='BioMedCLIP', help='List of pre-trained models, delimited by comma')
+    parser.add_argument('--models', type=str, default='BC', help='List of pre-trained models, delimited by comma')
     parser.add_argument('--projections', type=parse_projections, default=[0], help='List of projection dimensions, delimited by comma')
     parser.add_argument('--fusion_methods', type=str, default='concat', help='Fusion methods separated by comma')
     parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
@@ -887,8 +896,9 @@ def main():
     parser.add_argument('--n_estimators', type=int, default=100, help='Number of trees in XGBoost')
     parser.add_argument('--learning_rate', type=float, default=0.1, help='Learning rate for XGBoost')
     parser.add_argument('--max_depth', type=int, default=6, help='Maximum tree depth for XGBoost')
-    
+
     args = parser.parse_args()
+    wandb.init(project="xgboost-biofuse", config=args)
 
     train_model(args.dataset, 
                 args.models.split(','), 
@@ -896,7 +906,7 @@ def main():
                 args.img_size,
                 args.projections,
                 args.fusion_methods.split(','),
-                args.single,
+                True,
                 n_estimators=args.n_estimators,
                 learning_rate=args.learning_rate,
                 max_depth=args.max_depth)
