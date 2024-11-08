@@ -1,3 +1,8 @@
+import warnings
+
+# Disable all warnings
+warnings.filterwarnings('ignore')
+
 import torch
 from biofuse.models.biofuse_model import BioFuseModel
 from biofuse.models.embedding_extractor import PreTrainedEmbedding
@@ -23,6 +28,7 @@ import argparse
 import itertools
 import os
 import pickle
+import time
 
 # Trainable layer imports
 import torch.optim as optim
@@ -30,6 +36,8 @@ import torch.nn as nn
 
 # Preprocessor
 from biofuse.models.processor import MultiModelPreprocessor
+
+
 
 PATIENCE = 25
 CACHE_DIR = '/data/biofuse-embedding-cache'
@@ -458,25 +466,25 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         classifier = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=num_classes,
-            n_estimators=250,
+            n_estimators=100,
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
             eval_metric='mlogloss',
-            n_jobs=8,
-            tree_method='hist'           
+            n_jobs=32,
+            tree_method='gpu_hist'           
         )
     else:
         print("Binary classification")
         xgb_model = xgb.XGBClassifier(
             objective='binary:logistic',
-            n_estimators=250,
+            n_estimators=100,
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
             eval_metric='logloss',
-            n_jobs=8,
-            tree_method='hist'          
+            n_jobs=32,
+            tree_method='gpu_hist'          
         )
 
         if multi_label:
@@ -611,6 +619,7 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split):
     
     for model in models:
         cached_data = load_embeddings_from_cache(dataset, model, img_size, split)
+        #cached_data = None
         if cached_data is not None:
             cached_embeddings[model], labels = cached_data
             print(f"Loaded cached embeddings for {model} ({split})")
@@ -717,7 +726,11 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
+    start = time.time()
     train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size, 'train')
+    end = time.time()
+    print(f"Time taken to extract and cache train embeddings: {end - start:.2f} seconds")
+    
     val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size, 'val')
     test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size, 'test')
 
@@ -746,6 +759,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             val_embeddings = [val_embeddings_cache[model].to("cuda") for model in models]
             val_fused_embeddings = biofuse_model(val_embeddings)
 
+            start = time.time()
             # Compute validation accuracy using standalone_eval
             val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(models, 
                                                                             biofuse_model, 
@@ -757,6 +771,11 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                                                                             test_labels, 
                                                                             num_classes,
                                                                             dataset)
+            end = time.time()
+            print(f"Time taken to evaluate configuration: {end - start:.2f} seconds")
+            # early exit
+            #sys.exit(0)
+            
             harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
             # Save this result

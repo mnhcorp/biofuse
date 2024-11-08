@@ -21,8 +21,6 @@ import random
 import argparse
 #import ipdb
 import itertools
-import os
-import pickle
 
 # Trainable layer imports
 import torch.optim as optim
@@ -32,23 +30,6 @@ import torch.nn as nn
 from biofuse.models.processor import MultiModelPreprocessor
 
 PATIENCE = 25
-CACHE_DIR = '/data/biofuse-embedding-cache'
-
-def get_cache_path(dataset, model, img_size, split):
-    return os.path.join(CACHE_DIR, f'{dataset}_{model}_{img_size}_{split}.pkl')
-
-def save_embeddings_to_cache(embeddings, labels, dataset, model, img_size, split):
-    cache_path = get_cache_path(dataset, model, img_size, split)
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    with open(cache_path, 'wb') as f:
-        pickle.dump((embeddings, labels), f)
-
-def load_embeddings_from_cache(dataset, model, img_size, split):
-    cache_path = get_cache_path(dataset, model, img_size, split)
-    if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            return pickle.load(f)
-    return None
 
 def set_seed(seed: int = 42) -> None:
     """
@@ -458,7 +439,7 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         classifier = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=num_classes,
-            n_estimators=50,
+            n_estimators=100,
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
@@ -470,7 +451,7 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         print("Binary classification")
         xgb_model = xgb.XGBClassifier(
             objective='binary:logistic',
-            n_estimators=50,
+            n_estimators=100,
             learning_rate=0.1,
             max_depth=6,
             use_label_encoder=False,
@@ -504,8 +485,15 @@ def evaluate_model(classifier, features, labels):
     - float: The accuracy of the classifier on the given features and labels.
     """
     print("Evaluating model...")
-    predictions = classifier.predict(features)
-    return accuracy_score(labels, predictions)
+    threshold = 0.5
+    y_score = np.array(classifier.predict(features))
+    y_pred = y_score > threshold
+    acc = 0
+    for i in range(labels.shape[1]):
+        acc += accuracy_score(labels[:, i], y_pred[:, i])
+    avg_accuracy = acc / labels.shape[1]
+    
+    return avg_accuracy
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes):
@@ -521,15 +509,24 @@ def compute_auc_roc(classifier, features, labels, num_classes):
     - float: The AUC-ROC score of the classifier on the given features and labels.
     """
     print("Computing AUC-ROC...")
-    if num_classes == 2:
-        predictions = classifier.predict_proba(features)[:, 1]
-        return roc_auc_score(labels, predictions)
-    else:
-        # use one-vs-all strategy
-        predictions = classifier.predict_proba(features)
-        return roc_auc_score(labels, predictions, multi_class='ovr')
+    y_score = np.array(classifier.predict_proba(features))    
+    auc_scores = []
+    for i in range(labels.shape[1]):
+        if len(np.unique(labels[:, i])) > 1:
+            auc = roc_auc_score(labels[:, i], y_score[:, i])
+            auc_scores.append(auc)
+    avg_auc = np.mean(auc_scores)
     
-def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset, classifier, scaler=None): 
+    return avg_auc
+    # if num_classes == 2:
+    #     predictions = classifier.predict_proba(features)[:, 1]
+    #     return roc_auc_score(labels, predictions)
+    # else:
+    #     # use one-vs-all strategy
+    #     predictions = classifier.predict_proba(features)
+    #     return roc_auc_score(labels, predictions, multi_class='ovr')
+
+def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
     """
     Standalone evaluation of the BioFuse model using cached embeddings.
 
@@ -553,39 +550,36 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
     if dataset == "chestmnist":
         multi_label = True
 
-    val_accuracy, val_auc_roc = None, None
-    new_classifier = classifier
     with torch.no_grad():
-        if new_classifier is None:
-            # Process train embeddings
-            train_fused_embeddings = biofuse_model([train_embeddings[model].to("cuda") for model in models])
-            train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
+        # Process train embeddings
+        train_fused_embeddings = biofuse_model([train_embeddings[model].to("cuda") for model in models])
+        train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
+        if multi_label:
+            train_labels = train_labels.view(-1,14)
+
+        train_labels_np = train_labels.cpu().numpy()
+            
+        # Train a new classifier on fused embeddings
+        new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+
+        val_accuracy, val_auc_roc = None, None
+        if val_embeddings is not None and val_labels is not None:
+            # Process val embeddings
+            val_fused_embeddings = biofuse_model([val_embeddings[model].to("cuda") for model in models])
+            val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
             if multi_label:
-                train_labels = train_labels.view(-1,14)
+                val_labels = val_labels.view(-1,14)
+            val_labels_np = val_labels.cpu().numpy()
+            
+            # Scale val embeddings
+            val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
 
-            train_labels_np = train_labels.cpu().numpy()
-                
-            # Train a new classifier on fused embeddings
-            new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+            # Evaluate on validation set
+            val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
+            val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes)
 
-            val_accuracy, val_auc_roc = None, None
-            if val_embeddings is not None and val_labels is not None:
-                # Process val embeddings
-                val_fused_embeddings = biofuse_model([val_embeddings[model].to("cuda") for model in models])
-                val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
-                if multi_label:
-                    val_labels = val_labels.view(-1,14)
-                val_labels_np = val_labels.cpu().numpy()
-                
-                # Scale val embeddings
-                val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
-
-                # Evaluate on validation set
-                val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
-                val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes)
-
-                print(f"Validation Accuracy: {val_accuracy:.4f}")
-                print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
+            print(f"Validation Accuracy: {val_accuracy:.4f}")
+            print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
         test_accuracy, test_auc_roc = None, None
         if test_embeddings is not None and test_labels is not None:
@@ -606,45 +600,41 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             print(f"Test Accuracy: {test_accuracy:.4f}")
             print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
-    return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc, new_classifier, scaler
+    return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
-def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split):
+def extract_and_cache_embeddings(dataloader, models):
     cached_embeddings = {model: [] for model in models}
     labels = []
-    
-    for model in models:
-        cached_data = load_embeddings_from_cache(dataset, model, img_size, split)
-        if cached_data is not None:
-            cached_embeddings[model], labels = cached_data
-            print(f"Loaded cached embeddings for {model} ({split})")
-            continue
-
-        extractor = PreTrainedEmbedding(model)
-        preprocessor = MultiModelPreprocessor([model])
-
-        model_embeddings = []
-        model_labels = []
-
-        for image, label in tqdm(dataloader, desc=f"Extracting embeddings for {model} ({split})"):
-            processed_image = preprocessor.preprocess(image[0])[0]
-            with torch.no_grad():
-                embeddings = extractor(processed_image)
-            model_embeddings.append(embeddings.squeeze(0))
-            model_labels.append(label)
-
-        cached_embeddings[model] = torch.stack(model_embeddings)
         
-        #Only update labels if they haven't been set yet
-        if len(labels) == 0:
-            if isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
-                labels = torch.stack(model_labels)
-            else:
-                labels = torch.tensor(model_labels)
-       
+    # Set up the model and preprocessors
+    extractors = {}
+    preprocessors = {}
+    for model in models:
+        extractors[model] = PreTrainedEmbedding(model)
+        preprocessors[model] = MultiModelPreprocessor([model])       
 
-        save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size, split)
-        print(f"Saved embeddings for {model} ({split}) to cache")
+    # Use the technique from generate_embeddings to extract embeddings
+    for image, label in tqdm(dataloader, desc="Extracting embeddings"):        
+        for model in models:
+            # Run it through the preprocessor
+            processed_image = preprocessors[model].preprocess(image[0])[0]        
+            with torch.no_grad():
+                embeddings = extractors[model](processed_image)
+            cached_embeddings[model].append(embeddings.squeeze(0))
+        labels.append(label)
 
+    # Stack embeddings and convert labels to tensor
+    for model in models:
+        cached_embeddings[model] = torch.stack(cached_embeddings[model])
+    
+    # Handle both single-label and multi-label cases
+    if isinstance(labels[0], torch.Tensor) and labels[0].dim() > 0:
+        # Multi-label case
+        labels = torch.stack(labels)
+    else:
+        # Single-label case
+        labels = torch.tensor(labels)
+    
     return cached_embeddings, labels
 
 def harmonic_mean(val_acc, val_auc):
@@ -676,11 +666,7 @@ def weighted_mean_with_penalty(val_acc, val_auc):
     
     return penalized_score
 
-def get_configurations(model_names, file_path, single):
-    # if single, there is only a single configuration with all models
-    if single:
-        return [tuple(model_names)]
-    
+def get_configurations(model_names, file_path):
     # Generate all combinations of pre-trained models
     configurations = []
     for r in range(1, len(model_names) + 1):
@@ -689,40 +675,40 @@ def get_configurations(model_names, file_path, single):
     # Print the size of the configurations
     print(f"Number of configurations: {len(configurations)}")    
 
-    # # Check if the results file exists
-    # if os.path.isfile(file_path):
-    #     # Read all rows, ignore first row
-    #     with open(file_path, mode='r') as file:
-    #         reader = csv.reader(file)
-    #         next(reader)
-    #         for row in reader:
-    #             # Extract the models and fusion method
-    #             models = row[2].split(',')                
+    # Check if the results file exists
+    if os.path.isfile(file_path):
+        # Read all rows, ignore first row
+        with open(file_path, mode='r') as file:
+            reader = csv.reader(file)
+            next(reader)
+            for row in reader:
+                # Extract the models and fusion method
+                models = row[2].split(',')                
                 
-    #             # Remove the models from the configurations
-    #             if tuple(models) in configurations:
-    #                 configurations.remove(tuple(models))
+                # Remove the models from the configurations
+                if tuple(models) in configurations:
+                    configurations.remove(tuple(models))
 
-    #     # Print the new configurations size 
-    #     print(f"Number of configurations after removing existing results: {len(configurations)}")
+        # Print the new configurations size 
+        print(f"Number of configurations after removing existing results: {len(configurations)}")
 
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
-    configurations = get_configurations(model_names, file_path, single)
+    configurations = get_configurations(model_names, file_path)
     print(configurations)
 
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)
 
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
-    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size, 'train')
-    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size, 'val')
-    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size, 'test')
+    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names)
+    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names)
+    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names)   
 
     best_config = None
     best_val_acc = 0
@@ -730,8 +716,6 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     best_val_auc_roc = 0
     best_test_auc_roc = 0
     best_harmonic_mean = 0
-    classifier = None
-    scaler = None
 
     # First pass: Evaluate configurations with a single epoch
     print("\nFirst pass: Evaluating model combinations")
@@ -752,32 +736,132 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             val_fused_embeddings = biofuse_model(val_embeddings)
 
             # Compute validation accuracy using standalone_eval
-            val_accuracy, val_auc_roc, _, _, new_classifier, new_scaler = standalone_eval(models, 
+            val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(models, 
                                                                             biofuse_model, 
                                                                             train_embeddings_cache, 
                                                                             train_labels, 
                                                                             val_embeddings_cache, 
                                                                             val_labels, 
-                                                                            None, 
-                                                                            None, 
+                                                                            test_embeddings_cache, 
+                                                                            test_labels, 
                                                                             num_classes,
-                                                                            dataset,
-                                                                            None)
+                                                                            dataset)
             harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
             # Save this result
-            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, 0, 0, harmonic_mean_val)
+            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
 
             #if val_accuracy > best_val_acc:
             if harmonic_mean_val > best_harmonic_mean:
                 best_val_acc = val_accuracy
                 best_config = (models, 0, fusion_method)
                 best_val_auc_roc = val_auc_roc
-                best_harmonic_mean = harmonic_mean_val
-                classifier = new_classifier        
-                scaler = new_scaler      
+                best_harmonic_mean = harmonic_mean_val                
 
+    # print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
+    # print(f"Best Validation Accuracy: {best_val_acc:.4f}")
+    # print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
+
+    # Only do the second pass if additional projection dims were passed
+    if len(projection_dims) == 1 and projection_dims[0] == 0:
+        print("\nNo projection dims provided for the second")
+        # save final results
+        #append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
+        return
+
+    # Second pass: Train with learnable layers using the best configuration
+    print("\nSecond pass: Training with learnable layers")
+    best_models, _, best_fusion_method = best_config
+    # remove 0 projection dim from the list
+    projection_dims_second_pass = projection_dims[1:]
     
+    for projection_dim in projection_dims_second_pass:
+        print(f"\nTraining configuration: Models: {best_models}, Projection dim: {projection_dim}, Fusion method: {best_fusion_method}")
+
+        # Initialize the BioFuse model
+        biofuse_model = BioFuseModel(best_models, fusion_method=best_fusion_method, projection_dim=projection_dim)
+        biofuse_model = biofuse_model.to("cuda")
+
+        # Set up the classifier
+        input_dim = projection_dim if fusion_method != 'concat' else projection_dim * len(best_models)
+        print(f"Input dim: {input_dim}")
+        
+        output_dim = 1 if num_classes == 2 else num_classes
+        classifier = LogisticRegression2(input_dim, output_dim).to("cuda")
+
+        optimizer = optim.Adam(list(biofuse_model.parameters()) + list(classifier.parameters()), lr=0.004)
+        criterion = nn.BCEWithLogitsLoss() if num_classes == 2 else nn.CrossEntropyLoss()
+
+        best_epoch_val_acc = 0.0
+        patience = PATIENCE
+        patience_counter = 0
+
+        for epoch in range(num_epochs):
+            biofuse_model.train()
+            classifier.train()
+            
+            # Train
+            optimizer.zero_grad()
+            embeddings = [train_embeddings_cache[model].to("cuda") for model in best_models]
+            fused_embeddings = biofuse_model(embeddings)
+            logits = classifier(fused_embeddings)
+            
+            labels = train_labels.to("cuda")
+            if num_classes == 2:
+                loss = criterion(logits, labels.unsqueeze(1).float())
+            else:
+                loss = criterion(logits, labels)
+            
+            loss.backward()
+            optimizer.step()
+
+            # Validate
+            biofuse_model.eval()
+            classifier.eval()
+            with torch.no_grad():
+                val_embeddings = [val_embeddings_cache[model].to("cuda") for model in best_models]
+                val_fused_embeddings = biofuse_model(val_embeddings)
+                val_logits = classifier(val_fused_embeddings)
+                
+                val_labels = val_labels.to("cuda")
+                if num_classes == 2:
+                    val_predictions = (torch.sigmoid(val_logits) > 0.5).float()
+                else:
+                    val_predictions = torch.argmax(val_logits, dim=1)
+                
+                val_accuracy = (val_predictions.squeeze() == val_labels).float().mean()
+
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}, Val Accuracy: {val_accuracy:.4f}')
+
+            if val_accuracy > best_epoch_val_acc:
+                best_epoch_val_acc = val_accuracy
+                patience_counter = 0
+            else:
+                patience_counter += 1
+
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
+
+        # Evaluate on validation set
+        biofuse_model.eval()
+        classifier.eval()
+
+        # Compute validation accuracy using standalone_eval
+        val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)        
+        harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
+
+        # Save this result
+        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
+
+        
+        #if val_accuracy > best_val_acc:
+        if harmonic_mean_val > best_harmonic_mean:
+            best_val_acc = val_accuracy
+            best_config = (best_models, projection_dim, best_fusion_method)
+            best_val_auc_roc = val_auc_roc
+            best_harmonic_mean = harmonic_mean_val
+
     print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
     print(f"Best Validation Accuracy: {best_val_acc:.4f}")
     print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
@@ -785,7 +869,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Compute test accuracy for the best configuration
     best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
     best_biofuse_model = best_biofuse_model.to("cuda")
-    _, _, best_test_acc, best_test_auc_roc, _, _ = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset, classifier, scaler)
+    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)
     #best_harmonic_mean = harmonic_mean(best_val_acc, best_val_auc)
 
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
@@ -829,11 +913,7 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
         if test_accuracy is None:
             test_accuracy = 0
             test_auc = 0
-
-        
-        #writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}', f'{harmonic_mean_val:.3f}'])
-        # write the results as XX.YY insead of 0.XYZ
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.4f}', f'{val_auc:.4f}', f'{test_accuracy:.4f}', f'{test_auc:.4f}', f'{harmonic_mean_val:.4f}'])
+        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}', f'{harmonic_mean_val:.3f}'])
 
 def parse_projections(proj_str):
     if proj_str:
@@ -850,8 +930,6 @@ def main():
     parser.add_argument('--models', type=str, default='BioMedCLIP', help='List of pre-trained models, delimited by comma')
     parser.add_argument('--projections', type=parse_projections, default=[0], help='List of projection dimensions, delimited by comma')
     parser.add_argument('--fusion_methods', type=str, default='concat', help='Fusion methods separated by comma')
-    # add --single
-    parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
     args = parser.parse_args()
 
     train_model(args.dataset, 
@@ -859,8 +937,7 @@ def main():
                 args.num_epochs, 
                 args.img_size,
                 args.projections,
-                args.fusion_methods.split(','),
-                args.single)
+                args.fusion_methods.split(','))
     
 if __name__ == "__main__":
     main()

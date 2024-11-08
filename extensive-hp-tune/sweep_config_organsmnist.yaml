@@ -1,0 +1,30 @@
+program: tests/test_linear_probe_trainable_hp.py  # Specifies the script to run
+method: bayes  # Use the random search strategy
+metric:
+  name: val_accuracy  # The metric to optimize
+  goal: maximize  # Aim to maximize the validation accuracy
+parameters:
+  learning_rate:
+    values: [0.01, 0.03, 0.05, 0.1, 0.2, 0.3]
+  n_estimators:
+    values: [100, 250, 500, 750, 1000, 1500]
+  max_depth:
+    values: [3, 6, 9, 12, 15]
+  max_leaves:
+    values: [0, 31, 63, 127, 255]
+  min_child_weight:
+    values: [1, 3, 5, 7]
+  subsample:
+    values: [0.6, 0.8, 1.0]
+  colsample_bytree:
+    values: [0.6, 0.8, 1.0]
+  reg_alpha:
+    values: [0, 0.1, 1, 10]
+  reg_lambda:
+    values: [0, 0.1, 1, 10]
+  max_bin:
+    values: [128, 256, 512]
+  models:
+    values: ['BC,PC,RD,UN,HB,PG']
+  dataset:
+    values: ['organsmnist']

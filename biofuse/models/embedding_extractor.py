@@ -38,6 +38,9 @@ class PreTrainedEmbedding(nn.Module):
         if self.model_name == "BioMedCLIP":
             self.model, self.processor = create_model_from_pretrained(model_info["model"])
             self.tokenizer = get_tokenizer(model_info["model"])
+        elif self.model_name == "CLIP":
+            self.model = CLIPModel.from_pretrained(model_info["model"])
+            self.processor = CLIPProcessor.from_pretrained(model_info["model"])
         elif self.model_name == "BioMistral":
             self.model = AutoModel.from_pretrained(model_info["model"])
             self.processor = AutoTokenizer.from_pretrained(model_info["model"])
@@ -87,7 +90,7 @@ class PreTrainedEmbedding(nn.Module):
                 model_output = self.model(input_data)
                 outputs = model_output.squeeze().clone()
                 del model_output
-            elif self.model_name == "PubMedCLIP":
+            elif self.model_name in ["PubMedCLIP", "CLIP"]:
                 outputs = self.model.get_image_features(**input_data)
             elif self.model_name in ["rad-dino", "Hibou-B"]:                
                 model_output = self.model(**input_data)

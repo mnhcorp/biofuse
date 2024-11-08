@@ -462,31 +462,32 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
         config = wandb.config
         n_estimators = config.n_estimators
         learning_rate = config.learning_rate
-        max_depth = config.max_depth
-        colsample_bytree = config.colsample_bytree
-        max_bin = config.max_bin
-        max_leaves = config.max_leaves
-        min_child_weight = config.min_child_weight
-        reg_alpha = config.reg_alpha
-        reg_lambda = config.reg_lambda
-        subsample = config.subsample
+        # max_depth = config.max_depth
+        # colsample_bytree = config.colsample_bytree
+        # max_bin = config.max_bin
+        # max_leaves = config.max_leaves
+        # min_child_weight = config.min_child_weight
+        # reg_alpha = config.reg_alpha
+        # reg_lambda = config.reg_lambda
+        # subsample = config.subsample
     else:
         n_estimators = 1
         learning_rate = 0.1
-        max_depth = 1
-        colsample_bytree = 0.6
-        max_bin = 128
-        max_leaves = 31
-        min_child_weight = 3
-        reg_alpha = 1
-        reg_lambda = 10
-        subsample = 0.8
+        # max_depth = 1
+        # colsample_bytree = 0.6
+        # max_bin = 128
+        # max_leaves = 31
+        # min_child_weight = 3
+        # reg_alpha = 1
+        # reg_lambda = 10
+        # subsample = 0.8
 
     # log the params we are using
-    print(f"n_estimators: {n_estimators}, learning_rate: {learning_rate}, max_depth: {max_depth}, "
-          f"colsample_bytree: {colsample_bytree}, max_bin: {max_bin}, max_leaves: {max_leaves}, "
-          f"min_child_weight: {min_child_weight}, reg_alpha: {reg_alpha}, reg_lambda: {reg_lambda}, "
-          f"subsample: {subsample}")
+    print(f"n_estimators: {n_estimators}, learning_rate: {learning_rate}")
+        #   , max_depth: {max_depth}, "
+        #   f"colsample_bytree: {colsample_bytree}, max_bin: {max_bin}, max_leaves: {max_leaves}, "
+        #   f"min_child_weight: {min_child_weight}, reg_alpha: {reg_alpha}, reg_lambda: {reg_lambda}, "
+        #   f"subsample: {subsample}")
 
     eval_metric = 'logloss'
     if num_classes > 2 and not multi_label:
@@ -496,14 +497,14 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
             num_class=num_classes,
             n_estimators=n_estimators,
             learning_rate=learning_rate,
-            max_depth=max_depth,
-            colsample_bytree=colsample_bytree,
-            max_bin=max_bin,
-            max_leaves=max_leaves,
-            min_child_weight=min_child_weight,
-            reg_alpha=reg_alpha,
-            reg_lambda=reg_lambda,
-            subsample=subsample,
+            # max_depth=max_depth,
+            # colsample_bytree=colsample_bytree,
+            # max_bin=max_bin,
+            # max_leaves=max_leaves,
+            # min_child_weight=min_child_weight,
+            # reg_alpha=reg_alpha,
+            # reg_lambda=reg_lambda,
+            # subsample=subsample,
             use_label_encoder=False,
             eval_metric='mlogloss',
             n_jobs=32,
@@ -517,26 +518,30 @@ def train_classifier2(features, labels, num_classes, multi_label=False, use_wand
             objective='binary:logistic',
             n_estimators=n_estimators,
             learning_rate=learning_rate,
-            max_depth=max_depth,
-            colsample_bytree=colsample_bytree,
-            max_bin=max_bin,
-            max_leaves=max_leaves,
-            min_child_weight=min_child_weight,
-            reg_alpha=reg_alpha,
-            reg_lambda=reg_lambda,
-            subsample=subsample,
+            # max_depth=max_depth,
+            # colsample_bytree=colsample_bytree,
+            # max_bin=max_bin,
+            # max_leaves=max_leaves,
+            # min_child_weight=min_child_weight,
+            # reg_alpha=reg_alpha,
+            # reg_lambda=reg_lambda,
+            # subsample=subsample,
             use_label_encoder=False,
             eval_metric='logloss',
             n_jobs=32,
-            tree_method='gpu_hist'          
+            tree_method='gpu_hist',
+            verbose=1         
         )
 
         if multi_label:
             classifier = OneVsRestClassifier(xgb_model)
         else:
-            classifier = xgb_model               
+            classifier = xgb_model        
 
-    classifier.fit(features, labels, verbose=True, early_stopping_rounds=50, eval_set=[(features, labels)])
+    if multi_label:
+        classifier.fit(features, labels)
+    else:
+        classifier.fit(features, labels, verbose=True, early_stopping_rounds=50, eval_set=[(features, labels)])
 
     end = time.time()
     print(f"Time taken to train XGBoost classifier: {end - start:.2f} seconds")
@@ -558,6 +563,29 @@ def evaluate_model(classifier, features, labels):
     print("Evaluating model...")
     predictions = classifier.predict(features)
     return accuracy_score(labels, predictions)
+
+def evaluate_model2(classifier, features, labels):
+    """
+    Evaluates the classifier on the given features and labels.
+
+    Args:
+    - classifier: The trained classifier.
+    - features: The input features for evaluation.
+    - labels: The target labels for evaluation.
+
+    Returns:
+    - float: The accuracy of the classifier on the given features and labels.
+    """
+    print("Evaluating model...")
+    threshold = 0.5
+    y_score = np.array(classifier.predict(features))
+    y_pred = y_score > threshold
+    acc = 0
+    for i in range(labels.shape[1]):
+        acc += accuracy_score(labels[:, i], y_pred[:, i])
+    avg_accuracy = acc / labels.shape[1]
+    
+    return avg_accuracy
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes):
@@ -631,7 +659,11 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
 
             # Evaluate on validation set
-            val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
+            if multi_label:
+                val_accuracy = evaluate_model2(new_classifier, val_fused_embeddings_np, val_labels_np)
+            else:
+                val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
+                
             val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes)
 
             print(f"Validation Accuracy: {val_accuracy:.4f}")
@@ -653,7 +685,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
 
             # Evaluate on test set
-            test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np)
+            if multi_label:
+                test_accuracy = evaluate_model2(new_classifier, test_fused_embeddings_np, test_labels_np)
+            else:
+                test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np)
             test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes)
 
             print(f"Test Accuracy: {test_accuracy:.4f}")

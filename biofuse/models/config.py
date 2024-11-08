@@ -8,6 +8,10 @@ AUTH_TOKEN = "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"
 CACHE_DIR = "/data/hf-hub/"
 
 MODEL_MAP = {
+            "CLIP": {
+                "model": "openai/clip-vit-base-patch32",
+                "tokenizer": None
+            },
             "BioMedCLIP": {
                 "model": 'hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224',
                 "tokenizer": 'hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224'
