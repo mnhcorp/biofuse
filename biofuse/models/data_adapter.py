@@ -32,11 +32,19 @@ class DataAdapter:
     
     @classmethod
     def from_medmnist(cls, data) -> BioFuseImageDataset:
-        """Create dataset from MedMNIST data object"""
+        """Create dataset from MedMNIST data object
+        
+        Args:
+            data: MedMNIST dataset object containing images and labels
+            
+        Returns:
+            BioFuseImageDataset: Dataset containing the MedMNIST images and labels
+        """
         return BioFuseImageDataset(
             images=data.imgs,  # MedMNIST stores images in .imgs
-            labels=data.labels,
-            path=False
+            labels=data.labels.squeeze() if hasattr(data.labels, 'squeeze') else data.labels,
+            path=False,
+            rgb=False  # MedMNIST images are grayscale
         )
     
     @classmethod
