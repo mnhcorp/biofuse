@@ -1,8 +1,10 @@
 from .image_dataset import BioFuseImageDataset
 import os
 import glob
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Tuple
 import numpy as np
+import medmnist
+from medmnist import INFO
 
 class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
@@ -31,21 +33,32 @@ class DataAdapter:
         )
     
     @classmethod
-    def from_medmnist(cls, data) -> BioFuseImageDataset:
-        """Create dataset from MedMNIST data object
+    def from_medmnist(cls, dataset_name: str, split: str, img_size: int, root: str = '/data/medmnist') -> Tuple[BioFuseImageDataset, int]:
+        """Create dataset from MedMNIST dataset name
         
         Args:
-            data: MedMNIST dataset object containing images and labels
+            dataset_name: Name of the MedMNIST dataset (e.g. 'breastmnist')
+            split: One of 'train', 'val', or 'test'
+            img_size: Size of the images
+            root: Root directory for dataset storage
             
         Returns:
-            BioFuseImageDataset: Dataset containing the MedMNIST images and labels
+            tuple: (BioFuseImageDataset, num_classes)
         """
+        # Get dataset information and class
+        info = INFO[dataset_name]
+        num_classes = len(info['label'])
+        DataClass = getattr(medmnist, info['python_class'])
+        
+        # Load raw MedMNIST dataset
+        data = DataClass(split=split, download=True, size=img_size, root=root)
+        
         return BioFuseImageDataset(
             images=data.imgs,  # MedMNIST stores images in .imgs
             labels=data.labels.squeeze() if hasattr(data.labels, 'squeeze') else data.labels,
             path=False,
             rgb=False  # MedMNIST images are grayscale
-        )
+        ), num_classes
     
     @classmethod
     def from_custom(cls,
