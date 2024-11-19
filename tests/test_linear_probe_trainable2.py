@@ -265,7 +265,7 @@ def load_data(dataset, img_size, train=True):
     print(f"Number of validation images: {len(val_dataset)}")
     print(f"Number of test images: {len(test_dataset)}")
 
-    # Create data loaders
+    # Create data loaders with the datasets returned from DataAdapter
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
