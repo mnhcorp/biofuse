@@ -53,12 +53,25 @@ class DataAdapter:
         # Load raw MedMNIST dataset
         data = DataClass(split=split, download=True, size=img_size, root=root)
         
-        return BioFuseImageDataset(
-            images=data.imgs,  # MedMNIST stores images in .imgs
+        # Set up image paths based on image size
+        save_dir = f'/data/medmnist/{dataset_name}_{split}'
+        if img_size != 28:
+            save_dir = f'{save_dir}/{dataset_name}_{img_size}'
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Create BioFuseImageDataset
+        dataset = BioFuseImageDataset(
+            images=data.imgs,
             labels=data.labels.squeeze() if hasattr(data.labels, 'squeeze') else data.labels,
             path=False,
             rgb=False  # MedMNIST images are grayscale
-        ), num_classes
+        )
+        
+        # Save the dataset if it doesn't exist
+        if not os.path.exists(save_dir):
+            dataset.save(save_dir)
+            
+        return dataset, num_classes
     
     @classmethod
     def from_custom(cls,
