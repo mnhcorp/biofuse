@@ -544,12 +544,15 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
-def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split):
+def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split, nocache=False):
     cached_embeddings = {model: [] for model in models}
     labels = []
     
     for model in models:
-        cached_data = load_embeddings_from_cache(dataset, model, img_size, split)
+        if not nocache:
+            cached_data = load_embeddings_from_cache(dataset, model, img_size, split)
+        else:
+            cached_data = None
         #cached_data = None
         if cached_data is not None:
             cached_embeddings[model], labels = cached_data
@@ -571,16 +574,15 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split):
 
         cached_embeddings[model] = torch.stack(model_embeddings)
         
-        #Only update labels if they haven't been set yet
         if len(labels) == 0:
             if isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
                 labels = torch.stack(model_labels)
             else:
                 labels = torch.tensor(model_labels)
-       
 
-        save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size, split)
-        print(f"Saved embeddings for {model} ({split}) to cache")
+        if not nocache:
+            save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size, split)
+            print(f"Saved embeddings for {model} ({split}) to cache")
 
     return cached_embeddings, labels
 
@@ -646,7 +648,7 @@ def get_configurations(model_names, file_path, single):
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
@@ -658,12 +660,12 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
     start = time.time()
-    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size, 'train')
+    train_embeddings_cache, train_labels = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size, 'train', nocache)
     end = time.time()
     print(f"Time taken to extract and cache train embeddings: {end - start:.2f} seconds")
     
-    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size, 'val')
-    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size, 'test')
+    val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size, 'val', nocache)
+    test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size, 'test', nocache)
 
     best_config = None
     best_val_acc = 0
@@ -897,6 +899,7 @@ def main():
     parser.add_argument('--fusion_methods', type=str, default='concat', help='Fusion methods separated by comma')
     # add --single
     parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
+    parser.add_argument('--nocache', action='store_true', help='Disable use of cached embeddings')
     args = parser.parse_args()
 
     train_model(args.dataset, 
@@ -905,7 +908,8 @@ def main():
                 args.img_size,
                 args.projections,
                 args.fusion_methods.split(','),
-                args.single)
+                args.single,
+                args.nocache)
     
 if __name__ == "__main__":
     main()
