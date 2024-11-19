@@ -184,21 +184,12 @@ def load_data(dataset, img_size, train=True):
     """
     print(f"Loading data for {dataset}...")
     
-    # Get dataset information and class
-    info = INFO[dataset]
-    num_classes = len(info['label'])
-    DataClass = getattr(medmnist, info['python_class'])
-    
-    # Load raw MedMNIST datasets
-    train_data = DataClass(split='train', download=True, size=img_size, root='/data/medmnist')
-    val_data = DataClass(split='val', download=True, size=img_size, root='/data/medmnist')
-    test_data = DataClass(split='test', download=True, size=img_size, root='/data/medmnist')
-    
-    # Convert to BioFuse format using DataAdapter
     from biofuse.models.data_adapter import DataAdapter
-    train_dataset = DataAdapter.from_medmnist(train_data)
-    val_dataset = DataAdapter.from_medmnist(val_data) 
-    test_dataset = DataAdapter.from_medmnist(test_data)
+    
+    # Load datasets using DataAdapter
+    train_dataset, num_classes = DataAdapter.from_medmnist(dataset, 'train', img_size)
+    val_dataset, _ = DataAdapter.from_medmnist(dataset, 'val', img_size)
+    test_dataset, _ = DataAdapter.from_medmnist(dataset, 'test', img_size)
     
     # Set the image paths based on the image size
     if img_size == 28:
