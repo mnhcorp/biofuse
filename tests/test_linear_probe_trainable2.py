@@ -170,26 +170,39 @@ def parse_labels_from_path(path):
     
     return [int(label) for label in label_part]
 
-def load_data(dataset, img_size, train=True):
+def load_data(dataset, img_size, train=True, data_root=None):
     """
     Load data for a given dataset.
 
     Args:
-        dataset (str): The name of the dataset.
-        img_size (int): The desired image size.
+        dataset (str): The name of the dataset ('imagenet' or medmnist datasets)
+        img_size (int): The desired image size
         train (bool, optional): Whether to load the training data. Defaults to True.
+        data_root (str, optional): Root directory for dataset storage, required for ImageNet.
 
     Returns:
-        tuple: A tuple containing the training data loader, validation data loader, test data loader, and the number of classes.
+        tuple: A tuple containing the training data loader, validation data loader, 
+               test data loader, and the number of classes.
     """
     print(f"Loading data for {dataset}...")
     
     from biofuse.models.data_adapter import DataAdapter
-    
-    # Load datasets using DataAdapter
-    train_dataset, num_classes = DataAdapter.from_medmnist(dataset, 'train', img_size)
-    val_dataset, _ = DataAdapter.from_medmnist(dataset, 'val', img_size)
-    test_dataset, _ = DataAdapter.from_medmnist(dataset, 'test', img_size)
+
+    if dataset == 'imagenet':
+        if data_root is None:
+            raise ValueError("data_root must be specified for ImageNet dataset")
+            
+        train_dataset, num_classes = DataAdapter.from_imagenet(
+            os.path.join(data_root, 'train'), 'train')
+        val_dataset, _ = DataAdapter.from_imagenet(
+            os.path.join(data_root, 'val'), 'val')
+        test_dataset, _ = DataAdapter.from_imagenet(
+            os.path.join(data_root, 'test'), 'test')
+    else:
+        # MedMNIST loading logic
+        train_dataset, num_classes = DataAdapter.from_medmnist(dataset, 'train', img_size)
+        val_dataset, _ = DataAdapter.from_medmnist(dataset, 'val', img_size)
+        test_dataset, _ = DataAdapter.from_medmnist(dataset, 'test', img_size)
     
     
     # Use a smaller sample
@@ -648,14 +661,14 @@ def get_configurations(model_names, file_path, single):
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
     configurations = get_configurations(model_names, file_path, single)
     print(configurations)
 
-    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size)
+    train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, data_root=data_root)
 
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
@@ -900,6 +913,7 @@ def main():
     # add --single
     parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
     parser.add_argument('--nocache', action='store_true', help='Disable use of cached embeddings')
+    parser.add_argument('--data_root', type=str, help='Root directory for dataset storage (required for ImageNet)')
     args = parser.parse_args()
 
     train_model(args.dataset, 
@@ -909,7 +923,8 @@ def main():
                 args.projections,
                 args.fusion_methods.split(','),
                 args.single,
-                args.nocache)
+                args.nocache,
+                args.data_root)
     
 if __name__ == "__main__":
     main()

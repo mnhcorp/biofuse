@@ -10,27 +10,49 @@ class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
     @classmethod
-    def from_imagenet(cls, path: str) -> BioFuseImageDataset:
-        """Create dataset from ImageNet directory structure"""
-        # ImageNet structure: root/class_folder/image.jpg
+    def from_imagenet(cls, path: str, split: str = 'train') -> Tuple[BioFuseImageDataset, int]:
+        """Create dataset from ImageNet directory structure
+        
+        Args:
+            path: Path to ImageNet directory for specific split
+            split: One of 'train', 'val', or 'test'
+            
+        Returns:
+            tuple: (BioFuseImageDataset, num_classes)
+        """
         image_paths = []
         labels = []
+        num_classes = 1000  # ImageNet has 1000 classes
         
-        for class_idx, class_dir in enumerate(sorted(os.listdir(path))):
-            class_path = os.path.join(path, class_dir)
-            if not os.path.isdir(class_path):
-                continue
+        if split == 'train':
+            # Hierarchical structure for training data
+            class_dirs = sorted([d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))])
+            
+            for class_idx, class_dir in enumerate(class_dirs):
+                class_path = os.path.join(path, class_dir)
+                for img_path in glob.glob(os.path.join(class_path, "*.JPEG")):
+                    image_paths.append(img_path)
+                    labels.append(class_idx)
+        else:
+            # Flat structure for val/test data
+            image_paths = sorted(glob.glob(os.path.join(path, "*.JPEG")))
+            
+            # Load labels from mapping file
+            mapping_file = os.path.join(os.path.dirname(path), f"imagenet_{split}_labels.txt")
+            if os.path.exists(mapping_file):
+                with open(mapping_file, 'r') as f:
+                    labels = [int(line.strip()) for line in f]
+            else:
+                raise FileNotFoundError(f"Label mapping file not found: {mapping_file}")
                 
-            for img_path in glob.glob(os.path.join(class_path, "*.JPEG")):
-                image_paths.append(img_path)
-                labels.append(class_idx)
-                
-        return BioFuseImageDataset(
+        dataset = BioFuseImageDataset(
             images=image_paths,
             labels=labels,
             path=True,
             rgb=True  # ImageNet is RGB
         )
+        
+        return dataset, num_classes
     
     @classmethod
     def from_medmnist(cls, dataset_name: str, split: str, img_size: int, root: str = '/data/medmnist') -> Tuple[BioFuseImageDataset, int]:
