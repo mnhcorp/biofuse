@@ -13,18 +13,24 @@ class BioFuseImageDataset(Dataset):
                  images: Union[List[str], np.ndarray],
                  labels: Union[List[int], np.ndarray],
                  path: bool = True,
-                 rgb: bool = False):
+                 rgb: bool = False,
+                 resize: bool = False,
+                 img_size: int = 224):
         """
         Args:
             images: List of image paths or numpy array of images
             labels: List/array of corresponding labels
             path: If True, images contains paths. If False, contains image arrays
             rgb: If True, convert images to RGB mode
+            resize: If True, resize images to img_size
+            img_size: Target size for image resizing if resize is True
         """
         self.images = images
         self.labels = labels
         self.path = path
         self.rgb = rgb
+        self.resize = resize
+        self.img_size = img_size
         self.logger = logging.getLogger(__name__)
 
     def __len__(self) -> int:
@@ -37,6 +43,8 @@ class BioFuseImageDataset(Dataset):
                 image = Image.open(img_path)
                 if self.rgb:
                     image = image.convert('RGB')
+                if self.resize:
+                    image = image.resize((self.img_size, self.img_size), Image.Resampling.BILINEAR)
             except (OSError, IOError) as e:
                 self.logger.warning(f"Error loading image {img_path}: {e}")
                 return None, self.labels[idx]
