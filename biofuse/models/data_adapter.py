@@ -10,7 +10,7 @@ class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
     @classmethod
-    def from_imagenet(cls, path: str, split: str, val_size: int = 5000, labels: Union[str, List[int]] = None) -> Tuple[BioFuseImageDataset, int]:
+    def from_imagenet(cls, path: str, split: str, val_size: int = 5000, labels: Union[str, List[int]] = None, subset_size: float = 1.0) -> Tuple[BioFuseImageDataset, int]:
         """Create dataset from ImageNet directory structure
         
         Args:
@@ -18,6 +18,7 @@ class DataAdapter:
             split: One of 'train', 'val', or 'test'
             val_size: Number of samples to use for validation set (default: 5000)
             labels: Either path to labels file (str) or list of integer labels for validation/test sets
+            subset_size: Fraction of the dataset to use (default: 1.0)
             
         Returns:
             tuple: (BioFuseImageDataset, num_classes)
@@ -33,7 +34,15 @@ class DataAdapter:
         if split == 'train':
             for class_idx, class_dir in enumerate(class_dirs):
                 class_path = os.path.join(path, class_dir)
-                for img_path in glob.glob(os.path.join(class_path, "*.JPEG")):
+                class_images = glob.glob(os.path.join(class_path, "*.JPEG"))
+            
+                # If using subset, randomly sample images
+                if subset_size < 1.0:
+                    num_samples = int(len(class_images) * subset_size)
+                    rng = np.random.RandomState(42)  # For reproducibility
+                    class_images = rng.choice(class_images, size=num_samples, replace=False)
+            
+                for img_path in class_images:
                     image_paths.append(img_path)
                     image_labels.append(class_idx)
         
@@ -55,9 +64,14 @@ class DataAdapter:
             if split == 'val':
                 # Create deterministic random state for reproducibility
                 rng = np.random.RandomState(42)
+            
+                if subset_size < 1.0:
+                    # Reduce val_size proportionally
+                    val_size = int(val_size * subset_size)
+            
                 indices = np.arange(len(all_val_images))
                 rng.shuffle(indices)
-                
+            
                 # Take first val_size images for validation
                 selected_indices = indices[:val_size]
                 image_paths = [all_val_images[i] for i in selected_indices]

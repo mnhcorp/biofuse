@@ -188,21 +188,24 @@ def load_data(dataset, img_size, train=True, data_root=None):
     
     from biofuse.models.data_adapter import DataAdapter
 
-    if dataset == 'imagenet':
+    if dataset in ['imagenet', 'imagenet-mini']:
         if data_root is None:
             raise ValueError("data_root must be specified for ImageNet dataset")
             
         # Path to labels file
         labels_file = os.path.join(data_root, 'ILSVRC2012_validation_ground_truth.txt')
         
+        # For imagenet-mini, use subset_size=0.01 (1/100th of the data)
+        subset_size = 0.01 if dataset == 'imagenet-mini' else 1.0
+        
         train_dataset, num_classes = DataAdapter.from_imagenet(
-            os.path.join(data_root, 'train'), 'train')
+            os.path.join(data_root, 'train'), 'train', subset_size=subset_size)
         val_dataset, _ = DataAdapter.from_imagenet(
             os.path.join(data_root, 'val'), 'val', 
-            labels=labels_file)
+            labels=labels_file, subset_size=subset_size)
         test_dataset, _ = DataAdapter.from_imagenet(
             os.path.join(data_root, 'test'), 'test',
-            labels=labels_file)
+            labels=labels_file)  # Keep full test set
     else:
         # MedMNIST loading logic
         train_dataset, num_classes = DataAdapter.from_medmnist(dataset, 'train', img_size)
