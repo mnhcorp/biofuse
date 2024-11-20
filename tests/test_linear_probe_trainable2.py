@@ -207,7 +207,7 @@ def load_data(dataset, img_size, train=True, data_root=None):
             labels=labels_file, subset_size=subset_size, val_size=2500)  # Use half for validation
         test_dataset, _ = DataAdapter.from_imagenet(
             os.path.join(data_root, 'val'), 'val',  # Use validation folder for test
-            labels=labels_file, subset_size=subset_size, val_size=2500)  # Use other half for test
+            labels=labels_file, subset_size=subset_size)  # Use other half for test
     else:
         # MedMNIST loading logic
         train_dataset, num_classes = DataAdapter.from_medmnist(dataset, 'train', img_size)
