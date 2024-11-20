@@ -454,7 +454,7 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
 
     return classifier, scaler
 
-def evaluate_model(classifier, features, labels):
+def evaluate_model(classifier, features, labels, dataset=None):
     """
     Evaluates the classifier on the given features and labels.
 
@@ -462,13 +462,30 @@ def evaluate_model(classifier, features, labels):
     - classifier: The trained classifier.
     - features: The input features for evaluation.
     - labels: The target labels for evaluation.
+    - dataset: The name of the dataset being evaluated.
 
     Returns:
-    - float: The accuracy of the classifier on the given features and labels.
+    - tuple or float: For ImageNet, returns (top1_accuracy, top5_accuracy).
+                     For other datasets, returns accuracy.
     """
     print("Evaluating model...")
-    predictions = classifier.predict(features)
-    return accuracy_score(labels, predictions)
+    if dataset in ['imagenet', 'imagenet-mini']:
+        # Get probability predictions
+        probs = classifier.predict_proba(features)
+        # Get top-k predictions
+        top1_preds = np.argmax(probs, axis=1)
+        top5_preds = np.argsort(probs, axis=1)[:, -5:]
+
+        # Calculate top-1 accuracy
+        top1_acc = accuracy_score(labels, top1_preds)
+        
+        # Calculate top-5 accuracy
+        top5_acc = np.mean([label in pred_top5 for label, pred_top5 in zip(labels, top5_preds)])
+        
+        return top1_acc, top5_acc
+    else:
+        predictions = classifier.predict(features)
+        return accuracy_score(labels, predictions)
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes, dataset=None):
@@ -547,12 +564,17 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
 
             # Evaluate on validation set
-            val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
+            val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np, dataset)
             val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes, dataset)
 
-            print(f"Validation Accuracy: {val_accuracy:.4f}")
-            if val_auc_roc is not None:
-                print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
+            if dataset in ['imagenet', 'imagenet-mini']:
+                val_top1, val_top5 = val_accuracy
+                print(f"Validation Top-1 Accuracy: {val_top1:.4f}")
+                print(f"Validation Top-5 Accuracy: {val_top5:.4f}")
+            else:
+                print(f"Validation Accuracy: {val_accuracy:.4f}")
+                if val_auc_roc is not None:
+                    print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
         test_accuracy, test_auc_roc = None, None
         if test_embeddings is not None and test_labels is not None:
@@ -567,12 +589,17 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
 
             # Evaluate on test set
-            test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np)
+            test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np, dataset)
             test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes, dataset)
 
-            print(f"Test Accuracy: {test_accuracy:.4f}")
-            if test_auc_roc is not None:
-                print(f"Test AUC-ROC: {test_auc_roc:.4f}")
+            if dataset in ['imagenet', 'imagenet-mini']:
+                test_top1, test_top5 = test_accuracy
+                print(f"Test Top-1 Accuracy: {test_top1:.4f}")
+                print(f"Test Top-5 Accuracy: {test_top5:.4f}")
+            else:
+                print(f"Test Accuracy: {test_accuracy:.4f}")
+                if test_auc_roc is not None:
+                    print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
