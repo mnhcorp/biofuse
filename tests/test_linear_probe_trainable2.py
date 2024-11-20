@@ -482,13 +482,18 @@ def compute_auc_roc(classifier, features, labels, num_classes):
     Returns:
     - float: The AUC-ROC score of the classifier on the given features and labels.
     """
-    print("Computing AUC-ROC...")
+    print("Computing AUC-ROC...")                                                                                               
+    print(f"Number of classes: {num_classes}")                                                                                                             
+    print(f"Unique labels in y_true: {np.unique(labels)}")     
     if num_classes == 2:
-        predictions = classifier.predict_proba(features)[:, 1]
+        predictions = classifier.predict_proba(features)[:, 1]        
+        print(f"Shape of predictions: {predictions.shape}")
         return roc_auc_score(labels, predictions)
     else:
         # use one-vs-all strategy
         predictions = classifier.predict_proba(features)
+        print(f"Shape of predictions: {predictions.shape}")                                                                                                
+        print(f"Shape of labels: {labels.shape}")             
         return roc_auc_score(labels, predictions, multi_class='ovr')
     
 def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
