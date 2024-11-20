@@ -192,12 +192,17 @@ def load_data(dataset, img_size, train=True, data_root=None):
         if data_root is None:
             raise ValueError("data_root must be specified for ImageNet dataset")
             
+        # Path to labels file
+        labels_file = os.path.join(data_root, 'ILSVRC2012_validation_ground_truth.txt')
+        
         train_dataset, num_classes = DataAdapter.from_imagenet(
             os.path.join(data_root, 'train'), 'train')
         val_dataset, _ = DataAdapter.from_imagenet(
-            os.path.join(data_root, 'val'), 'val')
+            os.path.join(data_root, 'val'), 'val', 
+            labels=labels_file)
         test_dataset, _ = DataAdapter.from_imagenet(
-            os.path.join(data_root, 'test'), 'test')
+            os.path.join(data_root, 'test'), 'test',
+            labels=labels_file)
     else:
         # MedMNIST loading logic
         train_dataset, num_classes = DataAdapter.from_medmnist(dataset, 'train', img_size)

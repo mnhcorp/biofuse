@@ -1,7 +1,7 @@
 from .image_dataset import BioFuseImageDataset
 import os
 import glob
-from typing import List, Union, Optional, Tuple
+from typing import List, Union, Optional, Tuple, Union
 import numpy as np
 import medmnist
 from medmnist import INFO
@@ -10,19 +10,20 @@ class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
     @classmethod
-    def from_imagenet(cls, path: str, split: str, val_size: int = 5000) -> Tuple[BioFuseImageDataset, int]:
+    def from_imagenet(cls, path: str, split: str, val_size: int = 5000, labels: Union[str, List[int]] = None) -> Tuple[BioFuseImageDataset, int]:
         """Create dataset from ImageNet directory structure
         
         Args:
             path: Path to ImageNet directory (train or val)
             split: One of 'train', 'val', or 'test'
             val_size: Number of samples to use for validation set (default: 5000)
+            labels: Either path to labels file (str) or list of integer labels for validation/test sets
             
         Returns:
             tuple: (BioFuseImageDataset, num_classes)
         """
         image_paths = []
-        labels = []
+        image_labels = []
         
         # Count number of classes
         class_dirs = sorted([d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))])
@@ -34,18 +35,22 @@ class DataAdapter:
                 class_path = os.path.join(path, class_dir)
                 for img_path in glob.glob(os.path.join(class_path, "*.JPEG")):
                     image_paths.append(img_path)
-                    labels.append(class_idx)
+                    image_labels.append(class_idx)
         
-        # If it's validation or test, work with validation directory
+        # If it's validation or test, use provided labels
         elif split in ['val', 'test']:
-            # First collect all validation images
-            all_val_images = []
-            all_val_labels = []
-            for class_idx, class_dir in enumerate(class_dirs):
-                class_path = os.path.join(path, class_dir)
-                class_images = glob.glob(os.path.join(class_path, "*.JPEG"))
-                all_val_images.extend(class_images)
-                all_val_labels.extend([class_idx] * len(class_images))
+            if labels is None:
+                raise ValueError("labels must be provided for validation/test sets")
+                
+            # Read ground truth labels if a file path is provided
+            if isinstance(labels, str):
+                with open(labels, 'r') as f:
+                    ground_truth = [int(line.strip()) for line in f.readlines()]
+            else:
+                ground_truth = labels
+                
+            # Get all validation images
+            all_val_images = sorted(glob.glob(os.path.join(path, "*.JPEG")))
             
             if split == 'val':
                 # Create deterministic random state for reproducibility
@@ -56,19 +61,19 @@ class DataAdapter:
                 # Take first val_size images for validation
                 selected_indices = indices[:val_size]
                 image_paths = [all_val_images[i] for i in selected_indices]
-                labels = [all_val_labels[i] for i in selected_indices]
+                image_labels = [ground_truth[i] for i in selected_indices]
             
             else:  # test
                 # Use all validation images for test
                 image_paths = all_val_images
-                labels = all_val_labels
+                image_labels = ground_truth
         
         else:
             raise ValueError(f"Invalid split: {split}. Must be one of ['train', 'val', 'test']")
         
         return BioFuseImageDataset(
             images=image_paths,
-            labels=labels,
+            labels=image_labels,
             path=True,
             rgb=True  # ImageNet is RGB
         ), num_classes
