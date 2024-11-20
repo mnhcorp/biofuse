@@ -471,7 +471,7 @@ def evaluate_model(classifier, features, labels):
     return accuracy_score(labels, predictions)
 
 # method to compute AUC-ROC for binary or multi-class classification
-def compute_auc_roc(classifier, features, labels, num_classes):
+def compute_auc_roc(classifier, features, labels, num_classes, dataset=None):
     """
     Computes the Area Under the Receiver Operating Characteristic Curve (AUC-ROC) for the classifier.
 
@@ -479,10 +479,16 @@ def compute_auc_roc(classifier, features, labels, num_classes):
     - classifier: The trained classifier.
     - features: The input features for evaluation.
     - labels: The target labels for evaluation.
+    - dataset: The name of the dataset being evaluated.
 
     Returns:
-    - float: The AUC-ROC score of the classifier on the given features and labels.
+    - float or None: The AUC-ROC score of the classifier on the given features and labels,
+                    or None if dataset is ImageNet/ImageNet-mini.
     """
+    # Skip AUC-ROC calculation for ImageNet datasets
+    if dataset in ['imagenet', 'imagenet-mini']:
+        return None
+        
     print("Computing AUC-ROC...")
     if num_classes == 2:
         predictions = classifier.predict_proba(features)[:, 1]
@@ -542,10 +548,11 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
             # Evaluate on validation set
             val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np)
-            val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes)
+            val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes, dataset)
 
             print(f"Validation Accuracy: {val_accuracy:.4f}")
-            print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
+            if val_auc_roc is not None:
+                print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
         test_accuracy, test_auc_roc = None, None
         if test_embeddings is not None and test_labels is not None:
@@ -561,10 +568,11 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
             # Evaluate on test set
             test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np)
-            test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes)
+            test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes, dataset)
 
             print(f"Test Accuracy: {test_accuracy:.4f}")
-            print(f"Test AUC-ROC: {test_auc_roc:.4f}")
+            if test_auc_roc is not None:
+                print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
@@ -614,11 +622,16 @@ def harmonic_mean(val_acc, val_auc):
     return 2 / ((1 / val_acc) + (1 / val_auc))
 
 def weighted_mean(val_acc, val_auc):
+    if val_auc is None:
+        return val_acc
     weights = [0.4, 0.6]        
     score = weights[0] * val_acc + weights[1] * val_auc
     return score
 
 def weighted_mean_with_penalty(val_acc, val_auc):
+    if val_auc is None:
+        return val_acc
+        
     weights = [0.4, 0.6]        
     score = weights[0] * val_acc + weights[1] * val_auc
     
