@@ -10,7 +10,7 @@ class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
     @classmethod
-    def from_imagenet(cls, path: str, split: str, val_size: int = 5000, labels: Union[str, List[int]] = None, subset_size: float = 1.0) -> Tuple[BioFuseImageDataset, int]:
+    def from_imagenet(cls, path: str, split: str, val_ratio: float = 0.5, labels: Union[str, List[int]] = None, subset_size: float = 1.0) -> Tuple[BioFuseImageDataset, int]:
         """Create dataset from ImageNet directory structure
         
         Args:
@@ -72,8 +72,10 @@ class DataAdapter:
                 indices = np.arange(len(all_val_images))
                 rng.shuffle(indices)
             
-                # Take first val_size images for validation
-                selected_indices = indices[:val_size]
+                # Calculate number of samples based on ratio
+                num_samples = int(len(all_val_images) * val_ratio)
+                # Take first num_samples images for validation
+                selected_indices = indices[:num_samples]
                 image_paths = [all_val_images[i] for i in selected_indices]
                 image_labels = [ground_truth[i] for i in selected_indices]
             
