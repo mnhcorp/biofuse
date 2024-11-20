@@ -490,11 +490,16 @@ def compute_auc_roc(classifier, features, labels, num_classes):
         print(f"Shape of predictions: {predictions.shape}")
         return roc_auc_score(labels, predictions)
     else:
-        # use one-vs-all strategy
         predictions = classifier.predict_proba(features)
         print(f"Shape of predictions: {predictions.shape}")                                                                                                
-        print(f"Shape of labels: {labels.shape}")             
-        return roc_auc_score(labels, predictions, multi_class='ovr')
+        print(f"Shape of labels: {labels.shape}")
+        
+        # Convert labels to one-hot encoding
+        from sklearn.preprocessing import label_binarize
+        labels_one_hot = label_binarize(labels, classes=np.arange(num_classes))
+        print(f"Shape of one-hot labels: {labels_one_hot.shape}")
+        
+        return roc_auc_score(labels_one_hot, predictions, multi_class='ovr')
     
 def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
     """
