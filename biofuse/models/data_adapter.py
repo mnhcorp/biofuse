@@ -10,49 +10,68 @@ class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
     @classmethod
-    def from_imagenet(cls, path: str, split: str = 'train') -> Tuple[BioFuseImageDataset, int]:
+    def from_imagenet(cls, path: str, split: str, val_size: int = 5000) -> Tuple[BioFuseImageDataset, int]:
         """Create dataset from ImageNet directory structure
         
         Args:
-            path: Path to ImageNet directory for specific split
+            path: Path to ImageNet directory (train or val)
             split: One of 'train', 'val', or 'test'
+            val_size: Number of samples to use for validation set (default: 5000)
             
         Returns:
             tuple: (BioFuseImageDataset, num_classes)
         """
         image_paths = []
         labels = []
-        num_classes = 1000  # ImageNet has 1000 classes
         
+        # Count number of classes
+        class_dirs = sorted([d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))])
+        num_classes = len(class_dirs)
+        
+        # If it's the training set, use all images from training directory
         if split == 'train':
-            # Hierarchical structure for training data
-            class_dirs = sorted([d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))])
-            
             for class_idx, class_dir in enumerate(class_dirs):
                 class_path = os.path.join(path, class_dir)
                 for img_path in glob.glob(os.path.join(class_path, "*.JPEG")):
                     image_paths.append(img_path)
                     labels.append(class_idx)
-        else:
-            # Flat structure for val/test data
-            image_paths = sorted(glob.glob(os.path.join(path, "*.JPEG")))
+        
+        # If it's validation or test, work with validation directory
+        elif split in ['val', 'test']:
+            # First collect all validation images
+            all_val_images = []
+            all_val_labels = []
+            for class_idx, class_dir in enumerate(class_dirs):
+                class_path = os.path.join(path, class_dir)
+                class_images = glob.glob(os.path.join(class_path, "*.JPEG"))
+                all_val_images.extend(class_images)
+                all_val_labels.extend([class_idx] * len(class_images))
             
-            # Load labels from mapping file
-            mapping_file = os.path.join(os.path.dirname(path), f"imagenet_{split}_labels.txt")
-            if os.path.exists(mapping_file):
-                with open(mapping_file, 'r') as f:
-                    labels = [int(line.strip()) for line in f]
-            else:
-                raise FileNotFoundError(f"Label mapping file not found: {mapping_file}")
+            if split == 'val':
+                # Create deterministic random state for reproducibility
+                rng = np.random.RandomState(42)
+                indices = np.arange(len(all_val_images))
+                rng.shuffle(indices)
                 
-        dataset = BioFuseImageDataset(
+                # Take first val_size images for validation
+                selected_indices = indices[:val_size]
+                image_paths = [all_val_images[i] for i in selected_indices]
+                labels = [all_val_labels[i] for i in selected_indices]
+            
+            else:  # test
+                # Use all validation images for test
+                image_paths = all_val_images
+                labels = all_val_labels
+        
+        else:
+            raise ValueError(f"Invalid split: {split}. Must be one of ['train', 'val', 'test']")
+        
+        return BioFuseImageDataset(
             images=image_paths,
             labels=labels,
             path=True,
             rgb=True  # ImageNet is RGB
-        )
-        
-        return dataset, num_classes
+        ), num_classes
     
     @classmethod
     def from_medmnist(cls, dataset_name: str, split: str, img_size: int, root: str = '/data/medmnist') -> Tuple[BioFuseImageDataset, int]:
