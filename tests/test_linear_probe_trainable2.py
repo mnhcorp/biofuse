@@ -906,7 +906,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc, harmonic_mean_val=0):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc):
     """
     Appends the results to a CSV file.
 
@@ -917,9 +917,9 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
     - fusion_method: The fusion method used in the BioFuse model.
     - projection_dim: The dimension of the projection layer.
     - epochs: The number of training epochs.
-    - val_accuracy: The validation accuracy.
+    - val_accuracy: The validation accuracy (or tuple of (top1, top5) for ImageNet).
     - val_auc: The validation AUC-ROC score.
-    - test_accuracy: The test accuracy.
+    - test_accuracy: The test accuracy (or tuple of (top1, top5) for ImageNet).
     - test_auc: The test AUC-ROC score.
 
     Returns:
@@ -931,20 +931,30 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
     with open(file_path, mode='a', newline='') as file:
         writer = csv.writer(file)
         if not file_exists:
-            writer.writerow(['Dataset', 'Image Size', 'Models', 'Fusion Method', 'Projection Dim', 'Epochs', 'Val Accuracy', 'Val AUC-ROC', 'Test Accuracy', 'Test AUC-ROC'])
+            if dataset in ['imagenet', 'imagenet-mini']:
+                writer.writerow(['Dataset', 'Image Size', 'Models', 'Fusion Method', 'Projection Dim', 'Epochs', 
+                               'Val Top-1 Acc', 'Val Top-5 Acc', 'Test Top-1 Acc', 'Test Top-5 Acc'])
+            else:
+                writer.writerow(['Dataset', 'Image Size', 'Models', 'Fusion Method', 'Projection Dim', 'Epochs', 
+                               'Val Accuracy', 'Val AUC-ROC', 'Test Accuracy', 'Test AUC-ROC'])
 
-        # replace Nones with 0 for test or val accuracy
-        if val_accuracy is None:
-            val_accuracy = 0
-            val_auc = 0
-        if test_accuracy is None:
-            test_accuracy = 0
-            test_auc = 0
-
-        
-        #writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.3f}', f'{val_auc:.3f}', f'{test_accuracy:.3f}', f'{test_auc:.3f}', f'{harmonic_mean_val:.3f}'])
-        # write the results as XX.YY insead of 0.XYZ
-        writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs, f'{val_accuracy:.4f}', f'{val_auc:.4f}', f'{test_accuracy:.4f}', f'{test_auc:.4f}', f'{harmonic_mean_val:.4f}'])
+        # Handle ImageNet results differently
+        if dataset in ['imagenet', 'imagenet-mini']:
+            val_top1, val_top5 = val_accuracy if isinstance(val_accuracy, tuple) else (0, 0)
+            test_top1, test_top5 = test_accuracy if isinstance(test_accuracy, tuple) else (0, 0)
+            writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs,
+                           f'{val_top1:.4f}', f'{val_top5:.4f}', f'{test_top1:.4f}', f'{test_top5:.4f}'])
+        else:
+            # replace Nones with 0 for test or val accuracy
+            if val_accuracy is None:
+                val_accuracy = 0
+                val_auc = 0
+            if test_accuracy is None:
+                test_accuracy = 0
+                test_auc = 0
+            
+            writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs,
+                           f'{val_accuracy:.4f}', f'{val_auc:.4f}', f'{test_accuracy:.4f}', f'{test_auc:.4f}'])
 
 def parse_projections(proj_str):
     if proj_str:
