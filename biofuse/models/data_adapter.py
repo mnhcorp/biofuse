@@ -89,7 +89,9 @@ class DataAdapter:
             images=image_paths,
             labels=image_labels,
             path=True,
-            rgb=True  # ImageNet is RGB
+            rgb=True,  # ImageNet is RGB
+            resize=True,  # ImageNet needs resizing
+            img_size=224  # Standard ImageNet size
         ), num_classes
     
     @classmethod
