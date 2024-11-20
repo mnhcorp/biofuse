@@ -776,7 +776,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
             # Save this result
-            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
+            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc)
 
             #if val_accuracy > best_val_acc:
             if harmonic_mean_val > best_harmonic_mean:
