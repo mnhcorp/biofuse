@@ -223,6 +223,7 @@ def load_data(dataset, img_size, train=True, data_root=None):
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of validation images: {len(val_dataset)}")
     print(f"Number of test images: {len(test_dataset)}")
+    print(f"Number of classes: {num_classes}")
 
     # Create data loaders with the datasets returned from DataAdapter
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
@@ -482,24 +483,14 @@ def compute_auc_roc(classifier, features, labels, num_classes):
     Returns:
     - float: The AUC-ROC score of the classifier on the given features and labels.
     """
-    print("Computing AUC-ROC...")                                                                                               
-    print(f"Number of classes: {num_classes}")                                                                                                             
-    print(f"Unique labels in y_true: {np.unique(labels)}")     
+    print("Computing AUC-ROC...")
     if num_classes == 2:
-        predictions = classifier.predict_proba(features)[:, 1]        
-        print(f"Shape of predictions: {predictions.shape}")
+        predictions = classifier.predict_proba(features)[:, 1]
         return roc_auc_score(labels, predictions)
     else:
+        # use one-vs-all strategy
         predictions = classifier.predict_proba(features)
-        print(f"Shape of predictions: {predictions.shape}")                                                                                                
-        print(f"Shape of labels: {labels.shape}")
-        
-        # Convert labels to one-hot encoding
-        from sklearn.preprocessing import label_binarize
-        labels_one_hot = label_binarize(labels, classes=np.arange(num_classes))
-        print(f"Shape of one-hot labels: {labels_one_hot.shape}")
-        
-        return roc_auc_score(labels_one_hot, predictions, multi_class='ovr')
+        return roc_auc_score(labels, predictions, multi_class='ovr')
     
 def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
     """
