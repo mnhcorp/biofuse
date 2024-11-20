@@ -773,17 +773,15 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             # early exit
             #sys.exit(0)
             
-            harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
+            #harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
             # Save this result
             append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc)
 
-            #if val_accuracy > best_val_acc:
-            if harmonic_mean_val > best_harmonic_mean:
+            if val_accuracy[0] > best_val_acc:            
                 best_val_acc = val_accuracy
                 best_config = (models, 0, fusion_method)
-                best_val_auc_roc = val_auc_roc
-                best_harmonic_mean = harmonic_mean_val                
+                best_val_auc_roc = val_auc_roc                
 
     # print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
     # print(f"Best Validation Accuracy: {best_val_acc:.4f}")
@@ -876,18 +874,17 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
         # Compute validation accuracy using standalone_eval
         val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)        
-        harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
+        #harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
         # Save this result
-        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_acc, test_auc, harmonic_mean_val)
+        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_acc, test_auc)#, harmonic_mean_val)
 
         
-        #if val_accuracy > best_val_acc:
-        if harmonic_mean_val > best_harmonic_mean:
+        if val_accuracy > best_val_acc:
             best_val_acc = val_accuracy
             best_config = (best_models, projection_dim, best_fusion_method)
             best_val_auc_roc = val_auc_roc
-            best_harmonic_mean = harmonic_mean_val
+           
 
     print(f"\nBest overall configuration: Models: {best_config[0]}, Projection dim: {best_config[1]}, Fusion method: {best_config[2]}")
     print(f"Best Validation Accuracy: {best_val_acc:.4f}")
