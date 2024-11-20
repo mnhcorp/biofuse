@@ -16,7 +16,7 @@ class DataAdapter:
         Args:
             path: Path to ImageNet directory (train or val)
             split: One of 'train', 'val', or 'test'
-            val_size: Number of samples to use for validation set (default: 5000)
+            val_ratio: Ratio of validation samples to use (default: 0.5)
             labels: Either path to labels file (str) or list of integer labels for validation/test sets
             subset_size: Fraction of the dataset to use (default: 1.0)
             
@@ -65,15 +65,11 @@ class DataAdapter:
                 # Create deterministic random state for reproducibility
                 rng = np.random.RandomState(42)
             
-                if subset_size < 1.0:
-                    # Reduce val_size proportionally
-                    val_size = int(val_size * subset_size)
-            
                 indices = np.arange(len(all_val_images))
                 rng.shuffle(indices)
             
-                # Calculate number of samples based on ratio
-                num_samples = int(len(all_val_images) * val_ratio)
+                # Calculate number of samples based on ratio and subset size
+                num_samples = int(len(all_val_images) * val_ratio * subset_size)
                 # Take first num_samples images for validation
                 selected_indices = indices[:num_samples]
                 image_paths = [all_val_images[i] for i in selected_indices]
