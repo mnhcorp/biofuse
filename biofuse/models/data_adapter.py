@@ -13,7 +13,7 @@ class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
     @classmethod
-    def from_imagenet(cls, root: str, split: str, batch_size: int = 32, num_workers: int = 4, subset_size: float = 1.0) -> Tuple[DataLoader, int]:
+    def from_imagenet(cls, root: str, split: str, batch_size: int = 32, num_workers: int = 1, subset_size: float = 1.0) -> Tuple[DataLoader, int]:
         """Create DataLoader from ImageNet directory structure
         
         Args:

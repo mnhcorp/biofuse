@@ -193,7 +193,7 @@ def load_data(dataset, img_size, train=True, data_root=None):
             raise ValueError("data_root must be specified for ImageNet dataset")
         
         # Configure parameters based on dataset type
-        batch_size = 32 if dataset == 'imagenet' else 16
+        batch_size = 1
         subset_size = 1.0 if dataset == 'imagenet' else 0.01  # Use 1% for imagenet-mini
         
         # Load ImageNet data using the simplified approach
