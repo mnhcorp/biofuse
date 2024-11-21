@@ -191,44 +191,44 @@ def load_data(dataset, img_size, train=True, data_root=None):
     if dataset in ['imagenet', 'imagenet-mini']:
         if data_root is None:
             raise ValueError("data_root must be specified for ImageNet dataset")
-            
-        # Path to labels file
-        labels_file = os.path.join(data_root, 'ILSVRC2012_validation_ground_truth.txt')
         
-        # For imagenet-mini, use subset_size=0.01 (1/100th of the data)
-        subset_size = 0.01 if dataset == 'imagenet-mini' else 1.0
+        # Configure parameters based on dataset type
+        batch_size = 32 if dataset == 'imagenet' else 16
+        subset_size = 1.0 if dataset == 'imagenet' else 0.01  # Use 1% for imagenet-mini
         
-        train_dataset, num_classes = DataAdapter.from_imagenet(
-            os.path.join(data_root, 'train'), 'train', subset_size=subset_size)
+        # Load ImageNet data using the simplified approach
+        train_loader, num_classes = DataAdapter.from_imagenet(
+            root=data_root, 
+            split='train',
+            batch_size=batch_size,
+            subset_size=subset_size
+        )
         
-        # Split validation set into validation and test (25% for validation, 75% for test)
-        val_dataset, _ = DataAdapter.from_imagenet(
-            os.path.join(data_root, 'val'), 'val', 
-            labels=labels_file, subset_size=subset_size, val_ratio=0.25)  # Use 25% for validation
-        test_dataset, _ = DataAdapter.from_imagenet(
-            os.path.join(data_root, 'val'), 'val',  # Use validation folder for test
-            labels=labels_file, subset_size=subset_size, val_ratio=0.75)  # Use 75% for test
+        # Load validation data
+        val_loader, _ = DataAdapter.from_imagenet(
+            root=data_root, 
+            split='val',
+            batch_size=batch_size,
+            subset_size=subset_size
+        )
+        
+        # For ImageNet, we'll use the validation set as both validation and test
+        test_loader = val_loader
+        
     else:
         # MedMNIST loading logic
         train_dataset, num_classes = DataAdapter.from_medmnist(dataset, 'train', img_size)
         val_dataset, _ = DataAdapter.from_medmnist(dataset, 'val', img_size)
         test_dataset, _ = DataAdapter.from_medmnist(dataset, 'test', img_size)
-    
-    
-    # Use a smaller sample
-    # train_dataset = Subset(train_dataset, range(200))
-    # val_dataset = Subset(val_dataset, range(50))
-    # test_dataset = Subset(test_dataset, range(50))
+        
+        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
 
-    print(f"Number of training images: {len(train_dataset)}")
-    print(f"Number of validation images: {len(val_dataset)}")
-    print(f"Number of test images: {len(test_dataset)}")
+    print(f"Number of training batches: {len(train_loader)}")
+    print(f"Number of validation batches: {len(val_loader)}")
+    print(f"Number of test batches: {len(test_loader)}")
     print(f"Number of classes: {num_classes}")
-
-    # Create data loaders with the datasets returned from DataAdapter
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     
     return train_loader, val_loader, test_loader, num_classes
 

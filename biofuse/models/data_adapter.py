@@ -1,96 +1,61 @@
 from .image_dataset import BioFuseImageDataset
 import os
-import glob
-from typing import List, Union, Optional, Tuple, Union
+from typing import List, Union, Optional, Tuple
 import numpy as np
 import medmnist
 from medmnist import INFO
+from torchvision.datasets import ImageNet
+from torchvision import transforms
+from torch.utils.data import DataLoader, Subset
+import random
 
 class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
     @classmethod
-    def from_imagenet(cls, path: str, split: str, val_ratio: float = 0.5, labels: Union[str, List[int]] = None, subset_size: float = 1.0) -> Tuple[BioFuseImageDataset, int]:
-        """Create dataset from ImageNet directory structure
+    def from_imagenet(cls, root: str, split: str, batch_size: int = 32, num_workers: int = 4, subset_size: float = 1.0) -> Tuple[DataLoader, int]:
+        """Create DataLoader from ImageNet directory structure
         
         Args:
-            path: Path to ImageNet directory (train or val)
-            split: One of 'train', 'val', or 'test'
-            val_ratio: Ratio of validation samples to use (default: 0.5)
-            labels: Either path to labels file (str) or list of integer labels for validation/test sets
+            root: Path to ImageNet directory
+            split: One of 'train' or 'val'
+            batch_size: Batch size for DataLoader
+            num_workers: Number of workers for DataLoader
             subset_size: Fraction of the dataset to use (default: 1.0)
             
         Returns:
-            tuple: (BioFuseImageDataset, num_classes)
+            tuple: (DataLoader, num_classes)
         """
-        image_paths = []
-        image_labels = []
+        # Define standard ImageNet transformations
+        transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
         
-        # Count number of classes
-        class_dirs = sorted([d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))])
-        num_classes = len(class_dirs)
+        # Load dataset
+        dataset = ImageNet(root=root, split=split, transform=transform)
         
-        # If it's the training set, use all images from training directory
-        if split == 'train':
-            for class_idx, class_dir in enumerate(class_dirs):
-                class_path = os.path.join(path, class_dir)
-                class_images = glob.glob(os.path.join(class_path, "*.JPEG"))
+        # Create subset if needed
+        if subset_size < 1.0:
+            total_size = len(dataset)
+            subset_size = int(total_size * subset_size)
             
-                # If using subset, randomly sample images
-                if subset_size < 1.0:
-                    num_samples = int(len(class_images) * subset_size)
-                    rng = np.random.RandomState(42)  # For reproducibility
-                    class_images = rng.choice(class_images, size=num_samples, replace=False)
-            
-                for img_path in class_images:
-                    image_paths.append(img_path)
-                    image_labels.append(class_idx)
+            # Use random seed for reproducibility
+            random.seed(42)
+            indices = random.sample(range(total_size), subset_size)
+            dataset = Subset(dataset, indices)
         
-        # If it's validation or test, use provided labels
-        elif split in ['val', 'test']:
-            if labels is None:
-                raise ValueError("labels must be provided for validation/test sets")
-                
-            # Read ground truth labels if a file path is provided
-            if isinstance(labels, str):
-                with open(labels, 'r') as f:
-                    ground_truth = [int(line.strip()) for line in f.readlines()]
-            else:
-                ground_truth = labels
-                
-            # Get all validation images
-            all_val_images = sorted(glob.glob(os.path.join(path, "*.JPEG")))
-            
-            if split == 'val':
-                # Create deterministic random state for reproducibility
-                rng = np.random.RandomState(42)
-            
-                indices = np.arange(len(all_val_images))
-                rng.shuffle(indices)
-            
-                # Calculate number of samples based on ratio and subset size
-                num_samples = int(len(all_val_images) * val_ratio * subset_size)
-                # Take first num_samples images for validation
-                selected_indices = indices[:num_samples]
-                image_paths = [all_val_images[i] for i in selected_indices]
-                image_labels = [ground_truth[i] for i in selected_indices]
-            
-            else:  # test
-                # Use all validation images for test
-                image_paths = all_val_images
-                image_labels = ground_truth
+        # Create DataLoader
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=(split == 'train'),  # Shuffle only training data
+            num_workers=num_workers
+        )
         
-        else:
-            raise ValueError(f"Invalid split: {split}. Must be one of ['train', 'val', 'test']")
-        
-        return BioFuseImageDataset(
-            images=image_paths,
-            labels=image_labels,
-            path=True,
-            rgb=True,  # ImageNet is RGB
-            resize=True,  # ImageNet needs resizing
-            img_size=224  # Standard ImageNet size
-        ), num_classes
+        return loader, 1000  # ImageNet has 1000 classes
     
     @classmethod
     def from_medmnist(cls, dataset_name: str, split: str, img_size: int, root: str = '/data/medmnist') -> Tuple[BioFuseImageDataset, int]:
