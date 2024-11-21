@@ -41,23 +41,37 @@ class ModelPreprocessor:
 
     def preprocess(self, image):       
         if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI", "Hibou-B", "CLIP"]:
-            if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:                
-                preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
+            if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:
+                if isinstance(image, torch.Tensor):
+                    preprocessed_image = image.unsqueeze(0).to("cuda")
+                else:                
+                    preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
             elif self.model_name == "Prov-GigaPath":
-                preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
+                if isinstance(image, torch.Tensor):
+                    preprocessed_image = image.unsqueeze(0).to("cuda")
+                else:
+                    preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
             elif self.model_name in ["PubMedCLIP", "rad-dino", "Hibou-B", "CLIP"]:               
-                if self.model_name == "Hibou-B":
-                    image = image.convert('RGB')
-
-                preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda")
+                if isinstance(image, torch.Tensor):
+                    preprocessed_image = {"pixel_values": image.unsqueeze(0).to("cuda")}
+                else:
+                    if self.model_name == "Hibou-B":
+                        image = image.convert('RGB')
+                    preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda")
             else:
-                preprocessed_image = self.processor(image)
+                preprocessed_image = image
         elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
-            if self.model_name == "CheXagent":
-                preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda", dtype=torch.float16)
-                preprocessed_image['pixel_values'] = preprocessed_image['pixel_values'].squeeze(1).to("cuda", dtype=torch.float16)
+            if isinstance(image, torch.Tensor):
+                if self.model_name == "CheXagent":
+                    preprocessed_image = {"pixel_values": image.unsqueeze(0).to("cuda", dtype=torch.float16)}
+                else:
+                    preprocessed_image = {"pixel_values": image.unsqueeze(0).to("cuda")}
             else:
-                preprocessed_image = self.processor(image, return_tensors='pt').to("cuda")
+                if self.model_name == "CheXagent":
+                    preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda", dtype=torch.float16)
+                    preprocessed_image['pixel_values'] = preprocessed_image['pixel_values'].squeeze(1).to("cuda", dtype=torch.float16)
+                else:
+                    preprocessed_image = self.processor(image, return_tensors='pt').to("cuda")
         else:
             preprocessed_image = image
         
