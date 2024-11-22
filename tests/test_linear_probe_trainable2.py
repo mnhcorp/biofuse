@@ -170,14 +170,13 @@ def parse_labels_from_path(path):
     
     return [int(label) for label in label_part]
 
-def load_data(dataset, img_size, train=True, data_root=None):
+def load_data(dataset, img_size, data_root=None):
     """
     Load data for a given dataset.
 
     Args:
         dataset (str): The name of the dataset ('imagenet' or medmnist datasets)
         img_size (int): The desired image size
-        train (bool, optional): Whether to load the training data. Defaults to True.
         data_root (str, optional): Root directory for dataset storage, required for ImageNet.
 
     Returns:
@@ -212,8 +211,13 @@ def load_data(dataset, img_size, train=True, data_root=None):
             subset_size=subset_size
         )
         
-        # For ImageNet, we'll use the validation set as both validation and test
-        test_loader = val_loader
+        # Load test data
+        test_loader, _ = DataAdapter.from_imagenet(
+            root=data_root, 
+            split='test',
+            batch_size=batch_size,
+            subset_size=subset_size
+        )
         
     else:
         # MedMNIST loading logic
