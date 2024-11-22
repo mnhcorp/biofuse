@@ -966,6 +966,30 @@ def parse_projections(proj_str):
         return list(map(int, proj_str.split(',')))
     return []
 
+def save_test_predictions(predictions, filenames, models):
+    """
+    Save test predictions in the required format for ImageNet.
+    
+    Args:
+        predictions (numpy.ndarray): Array of shape (n_samples, n_classes) containing class probabilities
+        filenames (list): List of image filenames in the same order as predictions
+        models (list): List of model names used in the ensemble
+    """
+    # Create model name from the list of models
+    model_name = '_'.join(models)
+    submission_file = f"{model_name}_submission.txt"
+    
+    print(f"Saving predictions to {submission_file}")
+    
+    with open(submission_file, 'w') as f:
+        for pred, filename in zip(predictions, filenames):
+            # Get top 5 predictions (indices)
+            top5 = np.argsort(pred)[-5:][::-1]
+            # Convert to ILSVRC2012_IDs (1-based indexing)
+            top5_ids = [str(idx + 1) for idx in top5]
+            # Write to file: filename followed by space-separated predictions
+            f.write(f"{filename} {' '.join(top5_ids)}\n")
+
 def main():
     parser = argparse.ArgumentParser(description='BioFuse v1.1 (AutoFuse)')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
