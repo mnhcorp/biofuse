@@ -4,7 +4,8 @@ from typing import List, Union, Optional, Tuple
 import numpy as np
 import medmnist
 from medmnist import INFO
-from torchvision.datasets import ImageNet, Dataset
+from torchvision.datasets import ImageNet
+from torch.utils.data import Dataset
 import glob
 from PIL import Image
 
