@@ -52,7 +52,7 @@ class DataAdapter:
             dataset,
             batch_size=batch_size,
             shuffle=(split == 'train'),  # Shuffle only training data
-            num_workers=num_workers
+            #num_workers=num_workers
         )
         
         return loader, 1000  # ImageNet has 1000 classes
