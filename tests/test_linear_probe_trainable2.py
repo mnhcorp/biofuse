@@ -234,11 +234,11 @@ def load_data(dataset, img_size, data_root=None):
     print(f"Number of test batches: {len(test_loader)}")
     print(f"Number of classes: {num_classes}")
 
-    # Print the first sample from the training set, both x and y
-    print("First sample from the training set:")
-    print('--'*20)
-    print(next(iter(train_loader)))
-    print('--'*20)
+    # # Print the first sample from the training set, both x and y
+    # print("First sample from the training set:")
+    # print('--'*20)
+    # print(next(iter(train_loader)))
+    # print('--'*20)
     
     return train_loader, val_loader, test_loader, num_classes
 
