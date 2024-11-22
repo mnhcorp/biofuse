@@ -4,6 +4,29 @@ from typing import List, Union, Optional, Tuple
 import numpy as np
 import medmnist
 from medmnist import INFO
+from torchvision.datasets import ImageNet, Dataset
+import glob
+from PIL import Image
+
+class ImageNetTestDataset(Dataset):
+    """Custom dataset for ImageNet test data with flat directory structure"""
+    def __init__(self, root, transform=None):
+        self.root = root
+        self.transform = transform
+        # Get all JPEG files and sort them alphabetically
+        self.image_paths = sorted(glob.glob(os.path.join(root, '*.JPEG')))
+        
+    def __len__(self):
+        return len(self.image_paths)
+    
+    def __getitem__(self, idx):
+        image_path = self.image_paths[idx]
+        image = Image.open(image_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+        # Return filename (without path) as label for test set
+        return image, os.path.basename(image_path)
+
 from torchvision.datasets import ImageNet
 from torchvision import transforms
 from torch.utils.data import DataLoader, Subset
@@ -18,7 +41,7 @@ class DataAdapter:
         
         Args:
             root: Path to ImageNet directory
-            split: One of 'train' or 'val'
+            split: One of 'train', 'val', or 'test'
             batch_size: Batch size for DataLoader
             num_workers: Number of workers for DataLoader
             subset_size: Fraction of the dataset to use (default: 1.0)
@@ -34,8 +57,12 @@ class DataAdapter:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
         
-        # Load dataset
-        dataset = ImageNet(root=root, split=split, transform=transform)
+        # Load dataset based on split
+        if split == 'test':
+            test_dir = os.path.join(root, 'test')
+            dataset = ImageNetTestDataset(test_dir, transform=transform)
+        else:
+            dataset = ImageNet(root=root, split=split, transform=transform)
         
         # Create subset if needed
         if subset_size < 1.0:
