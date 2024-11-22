@@ -587,26 +587,24 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
                     print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
         test_accuracy, test_auc_roc = None, None
-        if test_embeddings is not None and test_labels is not None:
+        if test_embeddings is not None:
             # Process test embeddings
             test_fused_embeddings = biofuse_model([test_embeddings[model].to("cuda") for model in models])
             test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
             if multi_label:
                 test_labels = test_labels.view(-1,14)
-            test_labels_np = test_labels.cpu().numpy()
-            
-            # Scale test embeddings
-            test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
-
-            # Evaluate on test set
-            test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np, dataset)
-            test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes, dataset)
-
             if dataset in ['imagenet', 'imagenet-mini']:
-                test_top1, test_top5 = test_accuracy
-                print(f"Test Top-1 Accuracy: {test_top1:.4f}")
-                print(f"Test Top-5 Accuracy: {test_top5:.4f}")
+                # For ImageNet test set, generate predictions and save them
+                test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
+                test_predictions = new_classifier.predict_proba(test_fused_embeddings_np)
+                save_test_predictions(test_predictions, test_labels, models)  # test_labels contains filenames
+                test_accuracy = None
+                test_auc_roc = None
             else:
+                test_labels_np = test_labels.cpu().numpy()
+                test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
+                test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np, dataset)
+                test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes, dataset)
                 print(f"Test Accuracy: {test_accuracy:.4f}")
                 if test_auc_roc is not None:
                     print(f"Test AUC-ROC: {test_auc_roc:.4f}")
@@ -644,7 +642,10 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split, n
         cached_embeddings[model] = torch.stack(model_embeddings)
         
         if len(labels) == 0:
-            if isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
+            if split == 'test' and dataset in ['imagenet', 'imagenet-mini']:
+                # For ImageNet test set, store filenames instead of labels
+                labels = model_labels  # These are the filenames
+            elif isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
                 labels = torch.stack(model_labels)
             else:
                 labels = torch.tensor(model_labels)
