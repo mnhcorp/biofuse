@@ -987,13 +987,13 @@ def save_test_predictions(predictions, filenames, models):
     print(f"Saving predictions to {submission_file}")
     
     with open(submission_file, 'w') as f:
-        for pred, filename in zip(predictions, filenames):
+        for pred in predictions:
             # Get top 5 predictions (indices)
             top5 = np.argsort(pred)[-5:][::-1]
             # Convert to ILSVRC2012_IDs (1-based indexing)
             top5_ids = [str(idx + 1) for idx in top5]
-            # Write to file: filename followed by space-separated predictions
-            f.write(f"{filename} {' '.join(top5_ids)}\n")
+            # Write to file: only space-separated predictions
+            f.write(f"{' '.join(top5_ids)}\n")
 
 def main():
     parser = argparse.ArgumentParser(description='BioFuse v1.1 (AutoFuse)')
