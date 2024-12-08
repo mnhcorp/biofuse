@@ -991,7 +991,7 @@ def save_test_predictions(predictions, filenames, models):
             # Get top 5 predictions (indices)
             top5 = np.argsort(pred)[-5:][::-1]
             # Convert to ILSVRC2012_IDs (1-based indexing)
-            top5_ids = [str(idx + 1) for idx in top5]
+            top5_ids = [str(idx) for idx in top5]
             # Write to file: only space-separated predictions
             f.write(f"{' '.join(top5_ids)}\n")
 
