@@ -29,6 +29,7 @@ import itertools
 import os
 import pickle
 import time
+from datetime import datetime
 
 # Trainable layer imports
 import torch.optim as optim
@@ -217,7 +218,7 @@ def load_data(dataset, img_size, data_root=None):
             split='test',
             batch_size=batch_size,
             subset_size=subset_size
-        )
+        )       
         
     else:
         # MedMNIST loading logic
@@ -525,7 +526,7 @@ def compute_auc_roc(classifier, features, labels, num_classes, dataset=None):
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
     
-def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset): 
+def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset):
     """
     Standalone evaluation of the BioFuse model using cached embeddings.
 
@@ -558,8 +559,34 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
         train_labels_np = train_labels.cpu().numpy()
             
-        # Train a new classifier on fused embeddings
-        new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+        # For ImageNet datasets, check if trained model exists
+        classifier_path = None
+        scaler_path = None
+        if dataset in ['imagenet', 'imagenet-mini']:
+            model_str = '_'.join(sorted(models))
+            classifier_path = f'trained_models/{dataset}_{model_str}_classifier.pkl'
+            scaler_path = f'trained_models/{dataset}_{model_str}_scaler.pkl'
+            
+            if os.path.exists(classifier_path) and os.path.exists(scaler_path):
+                print("Loading existing trained model...")
+                with open(classifier_path, 'rb') as f:
+                    new_classifier = pickle.load(f)
+                with open(scaler_path, 'rb') as f:
+                    scaler = pickle.load(f)
+            else:
+                # Train a new classifier on fused embeddings
+                new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+                
+                # Save the trained model
+                print("Saving trained model...")
+                os.makedirs('trained_models', exist_ok=True)
+                with open(classifier_path, 'wb') as f:
+                    pickle.dump(new_classifier, f)
+                with open(scaler_path, 'wb') as f:
+                    pickle.dump(scaler, f)
+        else:
+            # For non-ImageNet datasets, train classifier as usual
+            new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
 
         val_accuracy, val_auc_roc = None, None
         if val_embeddings is not None and val_labels is not None:
@@ -572,6 +599,11 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             
             # Scale val embeddings
             val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
+
+            # Save validation predictions for ImageNet datasets
+            if dataset in ['imagenet', 'imagenet-mini']:
+                val_predictions = new_classifier.predict_proba(val_fused_embeddings_np)
+                #save_val_predictions(val_predictions, val_labels, models)
 
             # Evaluate on validation set
             val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np, dataset)
@@ -593,6 +625,7 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
             if multi_label:
                 test_labels = test_labels.view(-1,14)
+
             if dataset in ['imagenet', 'imagenet-mini']:
                 # For ImageNet test set, generate predictions and save them
                 test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
@@ -741,6 +774,12 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     
     val_embeddings_cache, val_labels = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size, 'val', nocache)
     test_embeddings_cache, test_labels = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size, 'test', nocache)
+
+    # Save the test labels to a file
+    if dataset in ['imagenet', 'imagenet-mini']:
+        with open(f"{dataset}_test_labels.txt", 'w') as f:
+            for label in test_labels:
+                f.write(f"{label}\n")
 
     best_config = None
     best_val_acc = 0
@@ -972,28 +1011,50 @@ def parse_projections(proj_str):
     return []
 
 def save_test_predictions(predictions, filenames, models):
-    """
-    Save test predictions in the required format for ImageNet.
+    id_mapping = {}
+    with open('idx_to_ILSVRC_ID.csv', 'r') as f:
+        csv_reader = csv.reader(f)
+        next(csv_reader)  # Skip header row
+        for row in csv_reader:
+            pred_id, ilsvrc_id = row[0], row[1]
+            id_mapping[int(pred_id)] = ilsvrc_id
     
-    Args:
-        predictions (numpy.ndarray): Array of shape (n_samples, n_classes) containing class probabilities
-        filenames (list): List of image filenames in the same order as predictions
-        models (list): List of model names used in the ensemble
-    """
     # Create model name from the list of models
     model_name = '_'.join(models)
-    submission_file = f"{model_name}_submission.txt"
+    timestamp = datetime.now().strftime('%d%m%y%H%M%S')
+    submission_file = f"imagenet-submissions/{model_name}_submission_{timestamp}.txt"    
     
     print(f"Saving predictions to {submission_file}")
     
     with open(submission_file, 'w') as f:
         for pred in predictions:
             # Get top 5 predictions (indices)
-            top5 = np.argsort(pred)[-5:][::-1]
-            # Convert to ILSVRC2012_IDs (1-based indexing)
-            top5_ids = [str(idx) for idx in top5]
-            # Write to file: only space-separated predictions
-            f.write(f"{' '.join(top5_ids)}\n")
+            top5_indices = np.argsort(pred)[-5:][::-1]
+            
+            # Map indices to ILSVRC IDs
+            top5_ilsvrc = [id_mapping[idx] for idx in top5_indices]
+
+            # Write to file: space-separated ILSVRC IDs
+            f.write(f"{' '.join(top5_ilsvrc)}\n")
+
+    
+def save_val_predictions(predictions, labels, models):
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    models_str = '_'.join(models)
+    filename = f'predictions_{models_str}_{timestamp}_val.txt'
+    
+    with open(filename, 'w') as f:
+        for i, pred in enumerate(predictions):
+            # Get label (assuming it's a filename or ID)
+            label = labels[i].item() if torch.is_tensor(labels[i]) else labels[i]
+            
+            # Get top 5 class indices
+            top5_classes = np.argsort(pred)[-5:][::-1]
+            
+            # Write as space-separated values without tensor formatting
+            f.write(f"{' '.join(map(str, top5_classes))}\n")
+            
+    print(f"Saved validation predictions to {filename}")
 
 def main():
     parser = argparse.ArgumentParser(description='BioFuse v1.1 (AutoFuse)')
