@@ -4,6 +4,8 @@ from transformers import AutoModel, AutoTokenizer, AutoProcessor, CLIPProcessor,
 from open_clip import create_model_from_pretrained, get_tokenizer
 from torchvision import transforms
 import timm
+from timm.data import resolve_data_config
+from timm.data.transforms_factory import create_transform
 import os
 from huggingface_hub import login
 from biofuse.models.config import AUTH_TOKEN, CACHE_DIR, MODEL_MAP
@@ -67,6 +69,10 @@ class PreTrainedEmbedding(nn.Module):
             )
             self.model.load_state_dict(torch.load("/data/hf-hub/ckpts/vit_large_patch16_224.dinov2.uni_mass100k/pytorch_model.bin", map_location="cpu"), strict=True)
             self.processor = model_info["tokenizer"]
+        elif self.model_name == "UNI2":
+            self.model = timm.create_model(pretrained=False, ** model_info["timm_kwargs"])
+            self.model.load_state_dict(torch.load("/data/hf-hub/ckpts/uni2-h/pytorch_model.bin", map_location="cpu"), strict=True)
+            self.processor = model_info["tokenizer"]
         elif self.model_name == "Hibou-B":
             self.model = AutoModel.from_pretrained(model_info["model"], trust_remote_code=True)
             self.processor = AutoImageProcessor.from_pretrained(model_info["model"], trust_remote_code=True)
@@ -86,7 +92,7 @@ class PreTrainedEmbedding(nn.Module):
                 model_output = self.model.encode_image(input_data, proj_contrast=False, normalize=False)
                 outputs = model_output.clone()
                 del model_output
-            elif self.model_name in ["Prov-GigaPath", "UNI"]:
+            elif self.model_name in ["Prov-GigaPath", "UNI", "UNI2"]:
                 model_output = self.model(input_data)
                 outputs = model_output.squeeze().clone()
                 del model_output

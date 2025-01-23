@@ -30,7 +30,7 @@ class ModelPreprocessor:
             preprocessor = CLIPProcessor.from_pretrained(self.model_info["model"])
         elif self.model_name == "rad-dino":
             preprocessor = AutoImageProcessor.from_pretrained(self.model_info["model"])
-        elif self.model_name == "UNI":
+        elif self.model_name in ["UNI", "UNI2"]:
             preprocessor = self.model_info["tokenizer"]
         elif self.model_name == "Hibou-B":
             preprocessor = AutoImageProcessor.from_pretrained(self.model_info["model"], trust_remote_code=True)
@@ -40,8 +40,8 @@ class ModelPreprocessor:
         return preprocessor
 
     def preprocess(self, image):       
-        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI", "Hibou-B", "CLIP"]:
-            if self.model_name in ["BioMedCLIP", "CONCH", "UNI"]:
+        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI", "Hibou-B", "CLIP", "UNI2"]:
+            if self.model_name in ["BioMedCLIP", "CONCH", "UNI", "UNI2"]:
                 if isinstance(image, torch.Tensor):
                     preprocessed_image = image.unsqueeze(0).to("cuda")
                 else:                

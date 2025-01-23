@@ -47,7 +47,8 @@ class BioFuseModel(nn.Module):
             "UNI": 1024,
             "Prov-GigaPath": 1536,
             "Hibou-B": 768,
-            "CLIP": 512
+            "CLIP": 512,
+            "UNI2": 1536
         }
         return model_dims.get(model_name, 512)
 
