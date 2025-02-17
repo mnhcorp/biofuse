@@ -405,6 +405,56 @@ def train_classifier(features, labels, num_classes):
     classifier.fit(features, labels)
     return classifier, scaler
 
+def get_xgb_params(n_samples):
+    """
+    Returns XGBoost parameters based on dataset size (n_samples).
+    
+    Args:
+        n_samples: Number of samples in your dataset
+        
+    Returns:
+        Dictionary of XGBoost parameters with sensible defaults
+    """
+    params = dict()
+
+    if n_samples < 1000:
+        # Very small dataset configuration
+        params.update({
+            'max_depth': 3,
+            'n_estimators': 50,
+            'learning_rate': 0.2
+        })
+    elif 1000 <= n_samples < 10000:
+        # Small dataset configuration
+        params.update({
+            'max_depth': 4,
+            'n_estimators': 100,
+            'learning_rate': 0.1
+        })
+    elif 10000 <= n_samples < 100000:
+        # Medium dataset configuration
+        params.update({
+            'max_depth': 6,
+            'n_estimators': 200,
+            'learning_rate': 0.05
+        })
+    else:  # 100k+ samples
+        # Large dataset configuration
+        params.update({
+            'max_depth': 8,
+            'n_estimators': 500,
+            'learning_rate': 0.01    
+        })
+
+    # Fix the params to n_estiamtors:100, learning_rate:0.1, max_depth:6
+    params.update({
+        'n_estimators': 250,
+        'learning_rate': 0.1,
+        'max_depth': 6
+    })
+
+    return params
+
 def train_classifier2(features, labels, num_classes, multi_label=False):
     """
     Trains an XGBoost classifier using the provided features and labels.
@@ -426,15 +476,18 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
     # record time for training
     import time
     start = time.time()
+    
+    # Get XGBoost parameters based on dataset size
+    xgb_params = get_xgb_params(len(features))
 
     if num_classes > 2 and not multi_label:
         print("Multi-class classification")
         classifier = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=num_classes,
-            n_estimators=100,
-            learning_rate=0.1,
-            max_depth=6,
+            n_estimators=xgb_params['n_estimators'],
+            learning_rate=xgb_params['learning_rate'],
+            max_depth=xgb_params['max_depth'],
             use_label_encoder=False,
             eval_metric='mlogloss',
             n_jobs=32,
@@ -444,9 +497,9 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
         print("Binary classification")
         xgb_model = xgb.XGBClassifier(
             objective='binary:logistic',
-            n_estimators=100,
-            learning_rate=0.1,
-            max_depth=6,
+            n_estimators=xgb_params['n_estimators'],
+            learning_rate=xgb_params['learning_rate'],
+            max_depth=xgb_params['max_depth'],
             use_label_encoder=False,
             eval_metric='logloss',
             n_jobs=32,
@@ -495,8 +548,20 @@ def evaluate_model(classifier, features, labels, dataset=None):
         
         return top1_acc, top5_acc
     else:
-        predictions = classifier.predict(features)
-        return accuracy_score(labels, predictions)
+        # Check if it's a multi-label problem (like ChestMNIST)
+        is_multilabel = len(labels.shape) > 1 and labels.shape[1] > 1
+        
+        if is_multilabel:
+            threshold = 0.5
+            y_score = np.array(classifier.predict(features))
+            y_pred = y_score > threshold
+            acc = 0
+            for i in range(labels.shape[1]):
+                acc += accuracy_score(labels[:, i], y_pred[:, i])
+            return acc / labels.shape[1]
+        else:
+            predictions = classifier.predict(features)
+            return accuracy_score(labels, predictions)
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes, dataset=None):
@@ -522,6 +587,19 @@ def compute_auc_roc(classifier, features, labels, num_classes, dataset=None):
         predictions = classifier.predict_proba(features)[:, 1]
         return roc_auc_score(labels, predictions)
     else:
+        # Check if it's a multi-label problem (like ChestMNIST)
+        is_multilabel = len(labels.shape) > 1 and labels.shape[1] > 1
+        
+        if is_multilabel:
+            y_score = np.array(classifier.predict_proba(features))    
+            auc_scores = []
+            for i in range(labels.shape[1]):
+                if len(np.unique(labels[:, i])) > 1:
+                    auc = roc_auc_score(labels[:, i], y_score[:, i])
+                    auc_scores.append(auc)
+            avg_auc = np.mean(auc_scores)
+            return avg_auc
+        
         # use one-vs-all strategy
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
@@ -731,27 +809,27 @@ def get_configurations(model_names, file_path, single):
     # Generate all combinations of pre-trained models
     configurations = []
     for r in range(1, len(model_names) + 1):
-        configurations.extend(itertools.combinations(model_names, r))
+       configurations.extend(itertools.combinations(model_names, r))
 
     # Print the size of the configurations
-    print(f"Number of configurations: {len(configurations)}")    
+    print(f"Number of configurations: {len(configurations)}")
 
-    # # Check if the results file exists
-    # if os.path.isfile(file_path):
-    #     # Read all rows, ignore first row
-    #     with open(file_path, mode='r') as file:
-    #         reader = csv.reader(file)
-    #         next(reader)
-    #         for row in reader:
-    #             # Extract the models and fusion method
-    #             models = row[2].split(',')                
+    # Check if the results file exists
+    if os.path.isfile(file_path):
+        # Read all rows, ignore first row
+        with open(file_path, mode='r') as file:
+            reader = csv.reader(file)
+            next(reader)
+            for row in reader:
+                # Extract the models and fusion method
+                models = row[2].split(',')                
                 
-    #             # Remove the models from the configurations
-    #             if tuple(models) in configurations:
-    #                 configurations.remove(tuple(models))
+                # Remove the models from the configurations
+                if tuple(models) in configurations:
+                    configurations.remove(tuple(models))
 
-    #     # Print the new configurations size 
-    #     print(f"Number of configurations after removing existing results: {len(configurations)}")
+        # Print the new configurations size 
+        print(f"Number of configurations after removing existing results: {len(configurations)}")
 
     return configurations
         
@@ -761,7 +839,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
     file_path = f"results_{dataset}_{img_size}.csv"
     configurations = get_configurations(model_names, file_path, single)
-    print(configurations)
+    #print(configurations)
 
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, data_root=data_root)
 
@@ -825,13 +903,17 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             
             #harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
-            # Save this result
-            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc)
+            # get xgb params
+            xgb_params = get_xgb_params(len(train_embeddings_cache[models[0]]))
+            n_estimators = xgb_params['n_estimators']
 
-            if val_accuracy[0] > best_val_acc:            
-                best_val_acc = val_accuracy
-                best_config = (models, 0, fusion_method)
-                best_val_auc_roc = val_auc_roc                
+            # Save this result
+            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, n_estimators)
+
+            # if val_accuracy > best_val_acc:            
+            #     best_val_acc = val_accuracy
+            #     best_config = (models, 0, fusion_method)
+            #     best_val_auc_roc = val_auc_roc                
 
     # print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
     # print(f"Best Validation Accuracy: {best_val_acc:.4f}")
@@ -953,7 +1035,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc, n_estimators):
     """
     Appends the results to a CSV file.
 
@@ -968,10 +1050,12 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
     - val_auc: The validation AUC-ROC score.
     - test_accuracy: The test accuracy (or tuple of (top1, top5) for ImageNet).
     - test_auc: The test AUC-ROC score.
+    - n_estimators: Number of estimators used in XGBoost.
 
     Returns:
     - None
     """
+    #file_path = f"results_{dataset}_{img_size}_est{n_estimators}.csv"
     file_path = f"results_{dataset}_{img_size}.csv"
     file_exists = os.path.isfile(file_path)
 
