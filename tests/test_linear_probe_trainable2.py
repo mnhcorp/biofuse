@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
+from catboost import CatBoostClassifier
 from medmnist import BreastMNIST
 import xgboost as xgb
 # progressbar
@@ -37,6 +38,9 @@ import torch.nn as nn
 
 # Preprocessor
 from biofuse.models.processor import MultiModelPreprocessor
+
+# import F from pytorch
+import torch.nn.functional as F
 
 
 
@@ -111,34 +115,510 @@ class LogisticRegression2(nn.Module):
         #outputs = torch.sigmoid(self.linear(x))
         return self.linear(x)
     
-class MLPClassifier(nn.Module):
-    """
-    Implements a Multi-Layer Perceptron (MLP) for classification.
+# class MLPClassifier(nn.Module):
+#     """
+#     Implements a Multi-Layer Perceptron (MLP) for classification.
 
-    This model consists of a simple feedforward neural network with one
-    hidden layer and a ReLU activation function. It can be used for binary
-    or multi-class classification tasks.
+#     This model consists of a simple feedforward neural network with one
+#     hidden layer and a ReLU activation function. It can be used for binary
+#     or multi-class classification tasks.
 
-    Attributes:
-        mlp (nn.Sequential): The sequential container of layers forming the MLP.
+#     Attributes:
+#         mlp (nn.Sequential): The sequential container of layers forming the MLP.
 
-    Parameters:
-        input_dim (int): Dimensionality of the input features.
-        hidden_dim (int): Number of neurons in the hidden layer.
-        output_dim (int): Number of output classes, typically 1 for binary classification.
-    """
-    def __init__(self, input_dim=1, hidden_dim=64, output_dim=1): # Assuming binary classification
-        super(MLPClassifier, self).__init__()
-        self.mlp = nn.Sequential(
+#     Parameters:
+#         input_dim (int): Dimensionality of the input features.
+#         hidden_dim (int): Number of neurons in the hidden layer.
+#         output_dim (int): Number of output classes, typically 1 for binary classification.
+#     """
+#     def __init__(self, input_dim=1, hidden_dim=64, output_dim=1):
+#         super(MLPClassifier, self).__init__()
+#         self.layer1 = nn.Linear(input_dim, hidden_dim)
+#         self.layer2 = nn.Linear(hidden_dim, hidden_dim)
+#         self.layer3 = nn.Linear(hidden_dim, output_dim)
+#         self.relu = nn.ReLU()
+
+#     # def forward(self, x):
+#     #     # if not x.requires_grad:
+#     #     #     x = x.requires_grad_(True)
+#     #     return self.mlp(x)
+
+#     def forward(self, x):
+#         # Add debug prints
+#         print(f"Input grad_fn: {x.grad_fn}")
+        
+#         x = self.layer1(x)
+#         print(f"After layer1 grad_fn: {x.grad_fn}")
+        
+#         x = self.relu(x)
+#         print(f"After relu1 grad_fn: {x.grad_fn}")
+        
+#         x = self.layer2(x)
+#         print(f"After layer2 grad_fn: {x.grad_fn}")
+        
+#         x = self.relu(x)
+#         print(f"After relu2 grad_fn: {x.grad_fn}")
+        
+#         x = self.layer3(x)
+#         print(f"After layer3 grad_fn: {x.grad_fn}")
+        
+#         return x
+
+class MLPArchitecture(nn.Module):
+    """Two-layer MLP with dropout"""
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout=0.3):
+        super().__init__()
+        self.network = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
+            nn.Dropout(dropout * 0.7),
+            nn.Linear(hidden_dim // 2, output_dim)
         )
 
     def forward(self, x):
-        return self.mlp(x)
+        return self.network(x)
+
+class CNNArchitecture(nn.Module):
+    """1D CNN for feature processing"""
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout=0.3):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, input_dim * 2),  # Expand features
+            nn.Unflatten(1, (2, input_dim)),  # Reshape for 1D conv
+            nn.Conv1d(2, hidden_dim, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.AdaptiveAvgPool1d(hidden_dim // 2),
+            nn.Flatten(),
+            nn.Linear(hidden_dim * (hidden_dim // 2), output_dim)
+        )
+
+    def forward(self, x):
+        return self.network(x)
+
+class CNNArchitectureAdvanced(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout=0.3):
+        super().__init__()
+        self.network = nn.Sequential(
+            # Initial feature processing
+            nn.BatchNorm1d(input_dim),  # Normalize input
+            nn.Linear(input_dim, input_dim * 2),
+            nn.ReLU(),
+            
+            # Reshape for CNN
+            nn.Unflatten(1, (2, input_dim)),
+            
+            # Single but effective conv layer
+            nn.Conv1d(2, hidden_dim, kernel_size=3, padding=1),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            
+            # Pooling and final processing
+            nn.AdaptiveAvgPool1d(hidden_dim // 2),
+            nn.Flatten(),
+            nn.Linear(hidden_dim * (hidden_dim // 2), hidden_dim // 4),
+            nn.ReLU(),
+            nn.Dropout(dropout/2),
+            nn.Linear(hidden_dim // 4, output_dim)
+        )
+        
+        # Initialize weights
+        self.apply(self._init_weights)
+    
+    def _init_weights(self, m):
+        if isinstance(m, (nn.Linear, nn.Conv1d)):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+                
+    def forward(self, x):
+        if self.training:
+            x = x.requires_grad_()
+        return self.network(x)
+
+    # def predict(self, X):
+    #     if isinstance(X, np.ndarray):
+    #         X = torch.FloatTensor(X).to(next(self.parameters()).device)
+    #     self.eval()
+    #     with torch.no_grad():
+    #         outputs = self(X)
+    #         predictions = torch.sigmoid(outputs) >= 0.5
+    #         return predictions.cpu().numpy().astype(int)
+
+    # def predict_proba(self, X):
+    #     if isinstance(X, np.ndarray):
+    #         X = torch.FloatTensor(X).to(next(self.parameters()).device)
+    #     self.eval()
+    #     with torch.no_grad():
+    #         outputs = self(X)
+    #         probas = torch.sigmoid(outputs)
+    #         return np.hstack([1 - probas.cpu().numpy(), probas.cpu().numpy()])
+
+
+
+class ResidualArchitecture(nn.Module):
+    """Residual network with skip connections"""
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout=0.3):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x):
+        h1 = self.dropout(F.relu(self.fc1(x)))
+        h2 = self.dropout(F.relu(self.fc2(h1))) + h1  # Skip connection
+        return self.fc3(h2)
+
+class NeuralNetClassifier(nn.Module):
+    """Wrapper class for different neural architectures"""
+    def __init__(self, input_dim, hidden_dim, output_dim, architecture='mlp', multi_label=False):
+        super().__init__()
+        self.multi_label = multi_label
+        
+        architectures = {
+            'mlp': MLPArchitecture,
+            'cnn': CNNArchitecture,
+            'resnet': ResidualArchitecture,
+            'cnn_adv': CNNArchitectureAdvanced
+        }
+        
+        if architecture not in architectures:
+            raise ValueError(f"Architecture must be one of {list(architectures.keys())}")
+            
+        self.network = architectures[architecture](input_dim, hidden_dim, output_dim)
+        
+    def forward(self, x):
+        return self.network(x)
+
+    def predict(self, X):
+        if isinstance(X, np.ndarray):
+            X = torch.FloatTensor(X).to(next(self.parameters()).device)
+        self.eval()
+        with torch.no_grad():
+            outputs = self(X)
+            if outputs.shape[1] == 1:  # binary
+                predictions = torch.sigmoid(outputs) >= 0.5
+            else:  # multi-class
+                predictions = torch.argmax(outputs, dim=1)
+            return predictions.cpu().numpy()
+
+    def predict_proba(self, X):
+        if isinstance(X, np.ndarray):
+            X = torch.FloatTensor(X).to(next(self.parameters()).device)
+        self.eval()
+        with torch.no_grad():
+            outputs = self(X)
+            if outputs.shape[1] == 1:  # binary
+                probas = torch.sigmoid(outputs)
+                return np.hstack([1 - probas.cpu().numpy(), probas.cpu().numpy()])
+            else:  # multi-class
+                return torch.softmax(outputs, dim=1).cpu().numpy()
+        
+    # def predict(self, X):
+    #     # Convert numpy array to torch tensor if necessary
+    #     if isinstance(X, np.ndarray):
+    #         X = torch.FloatTensor(X).to(next(self.parameters()).device)
+        
+    #     # Set to evaluation mode
+    #     self.eval()
+        
+    #     # Disable gradient computation for prediction
+    #     with torch.no_grad():
+    #         outputs = self(X)
+    #         predictions = torch.sigmoid(outputs) >= 0.5
+    #         return predictions.cpu().numpy().astype(int)
+
+    # def predict_proba(self, X):
+    #     # Convert numpy array to torch tensor if necessary
+    #     if isinstance(X, np.ndarray):
+    #         X = torch.FloatTensor(X).to(next(self.parameters()).device)
+        
+    #     # Set to evaluation mode
+    #     self.eval()
+        
+    #     # Disable gradient computation for prediction
+    #     with torch.no_grad():
+    #         outputs = self(X)
+    #         probas = torch.sigmoid(outputs)
+    #         # Return probabilities for both classes
+    #         return np.hstack([1 - probas.cpu().numpy(), probas.cpu().numpy()])
+
+
+
+
+def train_nn_classifier(features, labels, num_classes, multi_label=False, architecture='mlp'):
+    print(f"Training Neural Network classifier with {architecture} architecture...")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    scaler = StandardScaler()
+    features = scaler.fit_transform(features)
+
+    # Print essential info
+    print(f"num_classes: {num_classes}")
+    print(f"device: {device}")
+    print(f"features shape: {features.shape}")
+    print(f"labels shape: {labels.shape}")
+    print(f"multi_label: {multi_label}")
+
+    # Convert numpy arrays to torch tensors
+    if isinstance(features, np.ndarray):
+        features = torch.FloatTensor(features)
+    if isinstance(labels, np.ndarray):
+        if num_classes == 2:
+            labels = torch.FloatTensor(labels)
+        else:
+            # Convert to long tensor and reshape for multi-class
+            labels = torch.LongTensor(labels).squeeze()  # Remove extra dimension
+
+    # Move to device
+    features = features.to(device)
+    labels = labels.to(device)
+
+    if num_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
+
+    output_dim = 1 if num_classes == 2 else num_classes
+    hidden_dim = 256
+
+    # Initialize model
+    model = NeuralNetClassifier(input_dim=features.shape[1], hidden_dim=hidden_dim, output_dim=output_dim, multi_label=multi_label, architecture=architecture).to(device)
+    
+    # Crucial change: wrap the model in nn.DataParallel
+    model = nn.DataParallel(model)
+    
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    batch_size = 128
+    n_samples = len(features)
+    
+    for epoch in range(100):
+        model.train()
+        epoch_loss = 0
+        
+        indices = torch.randperm(n_samples)
+        
+        for start_idx in range(0, n_samples, batch_size):
+            end_idx = min(start_idx + batch_size, n_samples)
+            batch_indices = indices[start_idx:end_idx]
+            
+            batch_X = features[batch_indices]
+            batch_y = labels[batch_indices]
+            
+            # Zero gradients
+            model.zero_grad()
+            optimizer.zero_grad()
+            
+            # Forward pass with gradient computation enabled
+            with torch.set_grad_enabled(True):
+                outputs = model(batch_X)
+                loss = criterion(outputs, batch_y)
+                
+                # Debug prints for first batch
+                if epoch == 0 and start_idx == 0:
+                    print(f"outputs shape: {outputs.shape}")
+                    print(f"batch_y shape: {batch_y.shape}")
+                    print(f"outputs device: {outputs.device}")
+                    print(f"batch_y device: {batch_y.device}")
+                    print(f"Model parameters require grad:")
+                    for name, param in model.named_parameters():
+                        print(f"{name}: {param.requires_grad}")
+                
+                loss.backward()
+                optimizer.step()
+            
+            epoch_loss += loss.item()
+        
+        epoch_loss /= (n_samples // batch_size)
+        if (epoch + 1) % 10 == 0:
+            print(f"Epoch {epoch+1}, Loss: {epoch_loss:.4f}")
+
+    return model.module, scaler  # Return the underlying model without DataParallel wrapper
+
+
+def train_nn_classifier_bad(features, labels, num_classes, multi_label=False, architecture='mlp'):
+    """
+    Trains a neural network classifier using PyTorch.
+    """
+    print(f"Training Neural Network classifier with {architecture} architecture...")
+    # print num_classes
+    print(f"num_classes: {num_classes}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"device: {device}")  
+    
+    # Scale features but keep as numpy for scaler
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
+    
+    # Convert to PyTorch tensors with requires_grad=True
+    X = torch.FloatTensor(features_scaled).requires_grad_(True).to(device)
+    
+    # Handle different label formats
+    if multi_label or num_classes == 2:
+        y = torch.FloatTensor(labels).to(device)
+    else:
+        y = torch.LongTensor(labels).squeeze().to(device)
+        
+    if y.dim() > 1:
+        y = y.flatten()
+
+    # print the shape of X and y
+    print(f"X shape: {X.shape}")
+    print(f"y shape: {y.shape}")
+
+    # print the device of X and y
+    print(f"X device: {X.device}")
+    print(f"y device: {y.device}")
+    
+    # Initialize model
+    input_dim = features.shape[1]
+    hidden_dim = 256
+    #output_dim = labels.shape[1] if multi_label else num_classes
+    output_dim = 1 if num_classes == 2 else num_classes  # Single output neuron for binary
+
+    class NeuralNetClassifier2(nn.Module):
+        def __init__(self, input_dim, hidden_dim, output_dim, multi_label=False):
+            super().__init__()
+            self.multi_label = multi_label
+            self.network = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(hidden_dim, output_dim)
+            )
+            
+        def forward(self, x):
+            # if not x.requires_grad:
+            #     x = x.detach().requires_grad_(True)
+            x = x.float()
+            x.requires_grad_(True)
+            return self.network(x)
+
+        def check_gradients(self):
+            """Debug method to check gradients of parameters"""
+            for name, param in self.named_parameters():
+                print(f"{name} requires_grad: {param.requires_grad}")
+
+    model = NeuralNetClassifier2(input_dim, hidden_dim, output_dim, 
+                               multi_label=multi_label).to(device)
+    
+    def check_model_devices(model):
+        print(f"\nModel Device Check:")
+        print(f"Model type: {type(model)}")
+        
+        # Check if any part of the model is on CUDA
+        print(f"Is any part of model on CUDA: {next(model.parameters()).is_cuda}")
+        
+        # Check each parameter
+        for name, param in model.named_parameters():
+            print(f"Parameter {name}:")
+            print(f"  - Device: {param.device}")
+            print(f"  - Shape: {param.shape}")
+            print(f"  - Requires grad: {param.requires_grad}")
+        
+        # Check if model is in training mode
+        print(f"Model in training mode: {model.training}")
+
+    check_model_devices(model)
+
+    # model = NeuralNetClassifier(input_dim, hidden_dim, output_dim, 
+    #                            architecture=architecture, 
+    #                            multi_label=multi_label).to(device)
+
+    #print model device
+    #print(f"model device: {model.device}")
+
+    # print input_dim, hidden_dim, output_dim
+    print(f"input_dim: {input_dim}")
+    print(f"hidden_dim: {hidden_dim}")
+    print(f"output_dim: {output_dim}")
+    
+    # Training parameters
+    if multi_label or num_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
+    print(f"criterion: {criterion}")
+        
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    
+    # Training loop
+    batch_size = min(128, len(features))  # Adjust batch size for small datasets
+    dataset = torch.utils.data.TensorDataset(X, y)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    start = time.time()
+    best_loss = float('inf')
+    patience = 10
+    counter = 0
+    
+    for epoch in range(100):
+        model.train()
+        epoch_loss = 0
+        
+        for batch_X, batch_y in loader:
+            # Enable gradients for input
+            batch_X = batch_X.clone().detach().requires_grad_(True)
+            
+            optimizer.zero_grad()
+            
+            # Check gradients before forward pass
+            print("Before forward pass:")
+            print(f"batch_X.requires_grad: {batch_X.requires_grad}")
+            model.check_gradients()
+            
+            outputs = model(batch_X)
+            
+            # Check gradients after forward pass
+            print("\nAfter forward pass:")
+            print(f"outputs.requires_grad: {outputs.requires_grad}")
+            print(f"outputs grad_fn: {outputs.grad_fn}")
+            
+            if num_classes == 2:
+                loss = criterion(outputs, batch_y.unsqueeze(1).float())
+            else:
+                loss = criterion(outputs, batch_y)
+                
+            # Check loss gradients
+            print("\nLoss info:")
+            print(f"loss.requires_grad: {loss.requires_grad}")
+            print(f"loss grad_fn: {loss.grad_fn}")
+            
+            if not loss.requires_grad:
+                raise RuntimeError("Loss doesn't require grad!")
+                
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+            
+        epoch_loss /= len(loader)
+        
+        if epoch_loss < best_loss:
+            best_loss = epoch_loss
+            counter = 0
+        else:
+            counter += 1
+            
+        if counter >= patience:
+            print(f"Early stopping at epoch {epoch}")
+            break
+            
+        if (epoch + 1) % 10 == 0:
+            print(f"Epoch {epoch+1}, Loss: {epoch_loss:.4f}")
+    
+    end = time.time()
+    print(f"Time taken: {end - start:.2f} seconds")
+    
+    return model, scaler
 
 def custom_collate_fn(batch):
     """
@@ -518,6 +998,67 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
 
     return classifier, scaler
 
+def train_catboost_classifier(features, labels, num_classes, multi_label=False):
+    """
+    Trains a CatBoost classifier using the provided features and labels.
+
+    Args:
+        features (array-like): The input features for training the classifier.
+        labels (array-like): The corresponding labels for the input features.
+        num_classes (int): The number of classes in the classification problem.
+        multi_label (bool): Whether this is a multi-label classification problem.
+
+    Returns:
+        tuple: (classifier, scaler) - The trained classifier and the scaler used for feature scaling.
+    """        
+    print("Training CatBoost classifier...")
+
+    scaler = StandardScaler()
+    features = scaler.fit_transform(features)
+    
+    # Record training time
+    start = time.time()
+    
+    # Common parameters for all scenarios
+    base_params = {
+        'iterations': 1000,
+        'learning_rate': 0.1,
+        'depth': 6,
+        'task_type': 'GPU',
+        'devices': '0',  # Use first GPU
+        'verbose': 100,
+        'thread_count': 32
+    }
+
+    if num_classes > 2 and not multi_label:
+        print("Multi-class classification")
+        classifier = CatBoostClassifier(
+            **base_params,
+            loss_function='MultiClass',
+            classes_count=num_classes,
+            eval_metric='MultiClass'
+        )
+    else:
+        print("Binary classification")
+        cat_model = CatBoostClassifier(
+            **base_params,
+            loss_function='Logloss',
+            eval_metric='AUC'
+        )
+        
+        if multi_label:            
+            classifier = OneVsRestClassifier(cat_model)
+        else:
+            classifier = cat_model
+
+    # Train the classifier
+    classifier.fit(features, labels)
+
+    end = time.time()
+    print(f"Time taken to train CatBoost classifier: {end - start:.2f} seconds")
+
+    return classifier, scaler
+
 def evaluate_model(classifier, features, labels, dataset=None):
     """
     Evaluates the classifier on the given features and labels.
@@ -561,6 +1102,13 @@ def evaluate_model(classifier, features, labels, dataset=None):
             return acc / labels.shape[1]
         else:
             predictions = classifier.predict(features)
+
+            # Ensure predictions and labels are 1D arrays
+            if isinstance(predictions, np.ndarray) and len(predictions.shape) > 1:
+                predictions = predictions.squeeze()
+            if isinstance(labels, np.ndarray) and len(labels.shape) > 1:
+                labels = labels.squeeze()
+
             return accuracy_score(labels, predictions)
 
 # method to compute AUC-ROC for binary or multi-class classification
@@ -604,38 +1152,30 @@ def compute_auc_roc(classifier, features, labels, num_classes, dataset=None):
         predictions = classifier.predict_proba(features)
         return roc_auc_score(labels, predictions, multi_class='ovr')
     
-def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, test_embeddings, test_labels, num_classes, dataset):
-    """
-    Standalone evaluation of the BioFuse model using cached embeddings.
-
-    Args:
-    - biofuse_model: The trained BioFuse model.
-    - train_embeddings: Cached train embeddings.
-    - train_labels: Cached train labels.
-    - val_embeddings: Cached validation embeddings (can be None).
-    - val_labels: Cached validation labels (can be None).
-    - test_embeddings: Cached test embeddings (can be None).
-    - test_labels: Cached test labels (can be None).
-    - num_classes: Number of classes in the dataset.
-
-    Returns:
-    - tuple: (val_accuracy, val_auc_roc, test_accuracy, test_auc_roc)
-             Returns None for metrics if corresponding data is not provided.
-    """   
+def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_embeddings, val_labels, 
+                   test_embeddings, test_labels, num_classes, dataset, test_classifier_fn=None):
     biofuse_model.eval()
-
+    device = torch.device("cuda")
+    
     multi_label = False
     if dataset == "chestmnist":
         multi_label = True
 
     with torch.no_grad():
         # Process train embeddings
-        train_fused_embeddings = biofuse_model([train_embeddings[model].to("cuda") for model in models])
-        train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
+        train_fused_embeddings = biofuse_model([train_embeddings[model].to(device) for model in models])
+        
+        # Only move to CPU if not using neural network classifier
+        if test_classifier_fn and 'nn_' in test_classifier_fn.__name__:
+            # Clone and enable gradients for neural network training
+            train_fused_embeddings_np = train_fused_embeddings.clone().detach().requires_grad_(True)
+            train_labels_np = train_labels.to(device)
+        else:
+            train_fused_embeddings_np = train_fused_embeddings.cpu().numpy()
+            train_labels_np = train_labels.cpu().numpy()
+
         if multi_label:
             train_labels = train_labels.view(-1,14)
-
-        train_labels_np = train_labels.cpu().numpy()
             
         # For ImageNet datasets, check if trained model exists
         classifier_path = None
@@ -648,44 +1188,54 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             if os.path.exists(classifier_path) and os.path.exists(scaler_path):
                 print("Loading existing trained model...")
                 with open(classifier_path, 'rb') as f:
-                    new_classifier = pickle.load(f)
+                    val_classifier = pickle.load(f)
                 with open(scaler_path, 'rb') as f:
-                    scaler = pickle.load(f)
+                    val_scaler = pickle.load(f)
             else:
                 # Train a new classifier on fused embeddings
-                new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+                val_classifier, val_scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
                 
                 # Save the trained model
                 print("Saving trained model...")
                 os.makedirs('trained_models', exist_ok=True)
                 with open(classifier_path, 'wb') as f:
-                    pickle.dump(new_classifier, f)
+                    pickle.dump(val_classifier, f)
                 with open(scaler_path, 'wb') as f:
-                    pickle.dump(scaler, f)
+                    pickle.dump(val_scaler, f)
         else:
             # For non-ImageNet datasets, train classifier as usual
-            new_classifier, scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+            val_classifier, val_scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+
+        # Train test classifier if a different one is requested
+        test_classifier, test_scaler = None, None
+        if test_classifier_fn is not None:
+            test_classifier, test_scaler = test_classifier_fn(train_fused_embeddings_np, train_labels_np, 
+                                                            num_classes, multi_label)
 
         val_accuracy, val_auc_roc = None, None
         if val_embeddings is not None and val_labels is not None:
-            # Process val embeddings
-            val_fused_embeddings = biofuse_model([val_embeddings[model].to("cuda") for model in models])
-            val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
-            if multi_label:
-                val_labels = val_labels.view(-1,14)
-            val_labels_np = val_labels.cpu().numpy()
+            val_fused_embeddings = biofuse_model([val_embeddings[model].to(device) for model in models])
             
-            # Scale val embeddings
-            val_fused_embeddings_np = scaler.transform(val_fused_embeddings_np)
+            # Keep on GPU for neural network classifier
+            if test_classifier_fn and 'nn_' in test_classifier_fn.__name__:
+                val_fused_embeddings_np = val_fused_embeddings.clone().detach().requires_grad_(True)
+                val_labels_np = val_labels.to(device)
+            else:
+                val_fused_embeddings_np = val_fused_embeddings.cpu().numpy()
+                val_labels_np = val_labels.cpu().numpy()
+            
+            # Scale val embeddings if not using neural network
+            if not (test_classifier_fn and 'nn_' in test_classifier_fn.__name__):
+                val_fused_embeddings_np = val_scaler.transform(val_fused_embeddings_np)
 
             # Save validation predictions for ImageNet datasets
             if dataset in ['imagenet', 'imagenet-mini']:
-                val_predictions = new_classifier.predict_proba(val_fused_embeddings_np)
+                val_predictions = val_classifier.predict_proba(val_fused_embeddings_np)
                 #save_val_predictions(val_predictions, val_labels, models)
 
             # Evaluate on validation set
-            val_accuracy = evaluate_model(new_classifier, val_fused_embeddings_np, val_labels_np, dataset)
-            val_auc_roc = compute_auc_roc(new_classifier, val_fused_embeddings_np, val_labels_np, num_classes, dataset)
+            val_accuracy = evaluate_model(val_classifier, val_fused_embeddings_np, val_labels_np, dataset)
+            val_auc_roc = compute_auc_roc(val_classifier, val_fused_embeddings_np, val_labels_np, num_classes, dataset)
 
             if dataset in ['imagenet', 'imagenet-mini']:
                 val_top1, val_top5 = val_accuracy
@@ -698,29 +1248,39 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
 
         test_accuracy, test_auc_roc = None, None
         if test_embeddings is not None:
-            # Process test embeddings
-            test_fused_embeddings = biofuse_model([test_embeddings[model].to("cuda") for model in models])
-            test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
-            if multi_label:
-                test_labels = test_labels.view(-1,14)
+            test_fused_embeddings = biofuse_model([test_embeddings[model].to(device) for model in models])
+            
+            # Keep on GPU for neural network classifier
+            if test_classifier_fn and 'nn_' in test_classifier_fn.__name__:
+                test_fused_embeddings_np = test_fused_embeddings.clone().detach().requires_grad_(True)
+                test_labels_np = test_labels.to(device)
+            else:
+                test_fused_embeddings_np = test_fused_embeddings.cpu().numpy()
+                test_labels_np = test_labels.cpu().numpy()
+
+            # Use test classifier and scaler if provided, otherwise use validation ones
+            classifier = test_classifier if test_classifier is not None else val_classifier
+            scaler = test_scaler if test_scaler is not None else val_scaler
 
             if dataset in ['imagenet', 'imagenet-mini']:
                 # For ImageNet test set, generate predictions and save them
-                test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
-                test_predictions = new_classifier.predict_proba(test_fused_embeddings_np)
+                if not (test_classifier_fn and 'nn_' in test_classifier_fn.__name__):
+                    test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
+                test_predictions = classifier.predict_proba(test_fused_embeddings_np)
                 save_test_predictions(test_predictions, test_labels, models)  # test_labels contains filenames
                 test_accuracy = None
                 test_auc_roc = None
             else:
-                test_labels_np = test_labels.cpu().numpy()
-                test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
-                test_accuracy = evaluate_model(new_classifier, test_fused_embeddings_np, test_labels_np, dataset)
-                test_auc_roc = compute_auc_roc(new_classifier, test_fused_embeddings_np, test_labels_np, num_classes, dataset)
+                if not (test_classifier_fn and 'nn_' in test_classifier_fn.__name__):
+                    test_fused_embeddings_np = scaler.transform(test_fused_embeddings_np)
+                test_accuracy = evaluate_model(classifier, test_fused_embeddings_np, test_labels_np, dataset)
+                test_auc_roc = compute_auc_roc(classifier, test_fused_embeddings_np, test_labels_np, num_classes, dataset)
                 print(f"Test Accuracy: {test_accuracy:.4f}")
                 if test_auc_roc is not None:
                     print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
+
 
 def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split, nocache=False):
     cached_embeddings = {model: [] for model in models}
@@ -834,7 +1394,7 @@ def get_configurations(model_names, file_path, single):
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb'):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
@@ -895,7 +1455,8 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                                                                             test_embeddings_cache, 
                                                                             test_labels, 
                                                                             num_classes,
-                                                                            dataset)
+                                                                            dataset,
+                                                                            test_classifier_fn=get_classifier_fn(test_classifier))
             end = time.time()
             print(f"Time taken to evaluate configuration: {end - start:.2f} seconds")
             # early exit
@@ -1005,7 +1566,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         classifier.eval()
 
         # Compute validation accuracy using standalone_eval
-        val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)        
+        val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset, test_classifier_fn=get_classifier_fn(test_classifier))
         #harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
         # Save this result
@@ -1025,14 +1586,14 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Compute test accuracy for the best configuration
     best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
     best_biofuse_model = best_biofuse_model.to("cuda")
-    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset)
+    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset, test_classifier_fn=get_classifier_fn(test_classifier))
     #best_harmonic_mean = harmonic_mean(best_val_acc, best_val_auc)
 
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
     print(f"Test AUC-ROC for Best Configuration: {best_test_auc_roc:.4f}")
 
     # Save final results
-    append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
+    append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc)
 
 
 def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc, n_estimators):
@@ -1140,6 +1701,18 @@ def save_val_predictions(predictions, labels, models):
             
     print(f"Saved validation predictions to {filename}")
 
+def get_classifier_fn(classifier_name):
+    """Maps classifier name to its training function and parameters"""
+    classifiers = {
+        'xgb': train_classifier2,
+        'cat': train_catboost_classifier,
+        'nn_mlp': lambda *args: train_nn_classifier(*args, architecture='mlp'),
+        'nn_cnn': lambda *args: train_nn_classifier(*args, architecture='cnn'),
+        'nn_resnet': lambda *args: train_nn_classifier(*args, architecture='resnet'),
+        'nn_cnn_adv': lambda *args: train_nn_classifier(*args, architecture='cnn_adv'),
+    }
+    return classifiers.get(classifier_name, train_classifier2)
+
 def main():
     parser = argparse.ArgumentParser(description='BioFuse v1.1 (AutoFuse)')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
@@ -1152,6 +1725,9 @@ def main():
     parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
     parser.add_argument('--nocache', action='store_true', help='Disable use of cached embeddings')
     parser.add_argument('--data_root', type=str, help='Root directory for dataset storage (required for ImageNet)')
+    parser.add_argument('--test_classifier', type=str, default='xgb',
+                   choices=['xgb', 'cat', 'nn_mlp', 'nn_cnn', 'nn_resnet', 'nn_cnn_adv'],
+                   help='Classifier to use for test set')
     args = parser.parse_args()
 
     train_model(args.dataset, 
@@ -1162,7 +1738,8 @@ def main():
                 args.fusion_methods.split(','),
                 args.single,
                 args.nocache,
-                args.data_root)
+                args.data_root,
+                test_classifier=args.test_classifier)  # Add this argument
     
 if __name__ == "__main__":
     main()
