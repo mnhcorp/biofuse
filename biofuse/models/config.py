@@ -4,7 +4,7 @@ import timm
 import torch
 
 # HuggingFace authentication token
-AUTH_TOKEN = "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"
+AUTH_TOKEN = "hf_"
 
 # HuggingFace home directory
 CACHE_DIR = "/data/hf-hub/"
