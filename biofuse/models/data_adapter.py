@@ -137,3 +137,50 @@ class DataAdapter:
             labels=labels,
             path=(dataset_type == 'path')
         )
+        
+    @classmethod
+    def from_directory(cls, directory_path, transform=None):
+        """Create dataset from a directory of images
+        
+        Args:
+            directory_path: Path to directory containing images
+            transform: Optional transform to apply to images
+            
+        Returns:
+            tuple: (image_paths, labels)
+        """
+        # Get all image files in directory
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff']
+        image_paths = []
+        labels = []
+        
+        # Check if directory has class subdirectories
+        subdirs = [d for d in os.listdir(directory_path) 
+                if os.path.isdir(os.path.join(directory_path, d))]
+        
+        if subdirs:
+            # Directory has class subdirectories
+            for class_idx, class_name in enumerate(sorted(subdirs)):
+                class_dir = os.path.join(directory_path, class_name)
+                for ext in image_extensions:
+                    class_images = glob.glob(os.path.join(class_dir, f'*{ext}'))
+                    class_images.extend(glob.glob(os.path.join(class_dir, f'*{ext.upper()}')))
+                    image_paths.extend(class_images)
+                    labels.extend([class_idx] * len(class_images))
+        else:
+            # Flat directory structure, use filenames as labels
+            for ext in image_extensions:
+                found_images = glob.glob(os.path.join(directory_path, f'*{ext}'))
+                found_images.extend(glob.glob(os.path.join(directory_path, f'*{ext.upper()}')))
+                image_paths.extend(found_images)
+                # Use filenames without extension as labels
+                for path in found_images:
+                    filename = os.path.splitext(os.path.basename(path))[0]
+                    try:
+                        # Try to convert filename to integer label
+                        labels.append(int(filename))
+                    except ValueError:
+                        # If not possible, use filename as string label
+                        labels.append(filename)
+        
+        return image_paths, labels
