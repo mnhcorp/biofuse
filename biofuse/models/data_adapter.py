@@ -8,6 +8,8 @@ from torchvision.datasets import ImageNet
 from torch.utils.data import Dataset
 import glob
 from PIL import Image
+import torch
+from torchvision import transforms
 
 class ImageNetTestDataset(Dataset):
     """Custom dataset for ImageNet test data with flat directory structure"""
@@ -80,7 +82,7 @@ class DataAdapter:
             dataset,
             batch_size=batch_size,
             shuffle=(split == 'train'),  # Shuffle only training data
-            #num_workers=num_workers
+            num_workers=num_workers
         )
         
         return loader, 1000  # ImageNet has 1000 classes
@@ -103,48 +105,64 @@ class DataAdapter:
         num_classes = len(info['label'])
         DataClass = getattr(medmnist, info['python_class'])
         
-        # Load raw MedMNIST dataset
-        data = DataClass(split=split, download=True, size=img_size, root=root)
+        # Load raw MedMNIST dataset with transform
+        transform = transforms.Compose([
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
         
-        # Set up image paths based on image size
-        save_dir = f'/data/medmnist/{dataset_name}_{split}'
-        if img_size != 28:
-            save_dir = f'{save_dir}/{dataset_name}_{img_size}'
-        os.makedirs(save_dir, exist_ok=True)
+        data = DataClass(split=split, download=True, transform=transform, root=root)
+        
+        # Create BioFuseImageDataset
+        # Extract images and labels from the MedMNIST dataset
+        images = data.imgs
+        labels = data.labels.squeeze() if hasattr(data.labels, 'squeeze') else data.labels
         
         # Create BioFuseImageDataset
         dataset = BioFuseImageDataset(
-            images=data.imgs,
-            labels=data.labels.squeeze() if hasattr(data.labels, 'squeeze') else data.labels,
-            path=False,
-            rgb=False  # MedMNIST images are grayscale
+            images=images,
+            labels=labels,
+            path=False,  # MedMNIST provides numpy arrays, not paths
+            rgb=False,   # MedMNIST images are grayscale
+            resize=True,
+            size=img_size,
+            transform=transform
         )
         
-        # Save the dataset if it doesn't exist
-        if not os.path.exists(save_dir):
-            dataset.save(save_dir)
-            
         return dataset, num_classes
     
     @classmethod
     def from_custom(cls,
                    images: Union[List[str], np.ndarray],
                    labels: Union[List[int], np.ndarray],
-                   dataset_type: str = 'path') -> BioFuseImageDataset:
+                   dataset_type: str = 'path',
+                   img_size: int = 224) -> BioFuseImageDataset:
         """Create dataset from custom image paths or arrays"""
+        # Define transform for custom dataset
+        transform = transforms.Compose([
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        
         return BioFuseImageDataset(
             images=images,
             labels=labels,
-            path=(dataset_type == 'path')
+            path=(dataset_type == 'path'),
+            rgb=True,
+            resize=True,
+            size=img_size,
+            transform=transform
         )
         
     @classmethod
-    def from_directory(cls, directory_path, transform=None):
+    def from_directory(cls, directory_path, img_size=224):
         """Create dataset from a directory of images
         
         Args:
             directory_path: Path to directory containing images
-            transform: Optional transform to apply to images
+            img_size: Size to resize images to
             
         Returns:
             tuple: (image_paths, labels)
