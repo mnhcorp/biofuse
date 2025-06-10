@@ -126,8 +126,7 @@ class DataAdapter:
             path=False,  # MedMNIST provides numpy arrays, not paths
             rgb=False,   # MedMNIST images are grayscale
             resize=True,
-            size=img_size,
-            transform=transform
+            img_size=img_size
         )
         
         return dataset, num_classes
