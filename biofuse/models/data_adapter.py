@@ -87,7 +87,8 @@ class DataAdapter:
             labels=split_labels,
             path=True,
             rgb=True, # BUSI images are grayscale but we'll convert to RGB
-            transform=transform
+            resize=True,
+            img_size=img_size
         )
         
         return dataset, 2
