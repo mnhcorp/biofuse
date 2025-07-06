@@ -810,7 +810,8 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                     'UN': 'UNI',
                     'PG': 'Prov-GigaPath',
                     'HB': 'Hibou-B',
-                    'CA': 'CheXagent' }
+                    'CA': 'CheXagent',
+                    'UN2': 'UNI2',}
     # replace the model names with the actual model names
     model_names = [model_legend[model] for model in model_names]
 

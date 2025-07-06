@@ -317,7 +317,7 @@ class NeuralNetClassifier(nn.Module):
                 probas = torch.sigmoid(outputs)
                 return np.hstack([1 - probas.cpu().numpy(), probas.cpu().numpy()])
             else:  # multi-class
-                return torch.softmax(outputs, dim=1).cpu().numpy()
+                return torch.softmax(outputs, dim=1).cpu.numpy()
         
     # def predict(self, X):
     #     # Convert numpy array to torch tensor if necessary
@@ -1160,6 +1160,13 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
     multi_label = False
     if dataset == "chestmnist":
         multi_label = True
+        # Fix the label shapes for ChestMNIST
+        if len(train_labels.shape) == 3:
+            train_labels = train_labels.squeeze(1)
+        if val_labels is not None and len(val_labels.shape) == 3:
+            val_labels = val_labels.squeeze(1)
+        if test_labels is not None and len(test_labels.shape) == 3:
+            test_labels = test_labels.squeeze(1)
 
     with torch.no_grad():
         # Process train embeddings
@@ -1209,8 +1216,12 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
         # Train test classifier if a different one is requested
         test_classifier, test_scaler = None, None
         if test_classifier_fn is not None:
-            test_classifier, test_scaler = test_classifier_fn(train_fused_embeddings_np, train_labels_np, 
-                                                            num_classes, multi_label)
+            # Simple fix - check if test_classifier_fn is different than default
+            if test_classifier_fn is not None and test_classifier_fn.__name__ != train_classifier2.__name__:
+                test_classifier, test_scaler = test_classifier_fn(train_fused_embeddings_np, train_labels_np, 
+                                                                num_classes, multi_label)
+            else:
+                test_classifier, test_scaler = val_classifier, val_scaler
 
         val_accuracy, val_auc_roc = None, None
         if val_embeddings is not None and val_labels is not None:
@@ -1390,7 +1401,18 @@ def get_configurations(model_names, file_path, single):
 
         # Print the new configurations size 
         print(f"Number of configurations after removing existing results: {len(configurations)}")
-
+        
+    # Check the .current-run directory for on-going runs
+    current_run_dir = '.current-run'
+    if os.path.isdir(current_run_dir):
+        # Current runs will be <dataset>_<timestamp>.txt with model combination as content (comma-separated)
+        runs = [f for f in os.listdir(current_run_dir) if f.endswith('.txt')]
+        for run in runs:
+            with open(os.path.join(current_run_dir, run), 'r') as f:
+                models = f.read().strip().split(',')
+                if tuple(models) in configurations:
+                    configurations.remove(tuple(models))
+                    
     return configurations
         
 # Training the model with validation-informed adjustment
@@ -1431,6 +1453,14 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     for models in configurations:
         for fusion_method in fusion_methods:
             print(f"\nEvaluating configuration: Models: {models}, Fusion method: {fusion_method}")
+            
+            # Write to .current-run directory
+            current_run_dir = '.current-run'
+            os.makedirs(current_run_dir, exist_ok=True)
+            run_file_path = os.path.join(current_run_dir, f"{dataset}_{int(time.time())}.txt")
+            with open(run_file_path, 'w') as f:
+                f.write(','.join(models))
+            print(f"Current run written to: {run_file_path}")
 
             # Initialize the BioFuse model
             biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=0)
@@ -1470,6 +1500,11 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
             # Save this result
             append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, n_estimators)
+            
+            # Clean up the current run file
+            if os.path.exists(run_file_path):
+                os.remove(run_file_path)
+                print(f"Removed current run file: {run_file_path}")
 
             # if val_accuracy > best_val_acc:            
             #     best_val_acc = val_accuracy

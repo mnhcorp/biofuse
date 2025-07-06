@@ -5,18 +5,28 @@ from biofuse.models.embedding_extractor import PreTrainedEmbedding
 from biofuse.models.processor import MultiModelPreprocessor
 import ipdb
 
+GLOBAL_PROJECTED_DIM = 256  # Default projection dimension
+GLOBAL_NUM_HEADS = 4  # Default number of attention heads
+
 class BioFuseModel(nn.Module):
     def __init__(self, models, fusion_method='concat', projection_dim=512):
         super(BioFuseModel, self).__init__()
         self.models = models
         self.fusion_method = fusion_method
-        self.projection_dim = projection_dim
+        
+        # Ensure projection_dim is positive for self_attention
+        if fusion_method == 'self_attention' and projection_dim <= 0:
+            print(f"Warning: Setting projection_dim to {GLOBAL_PROJECTED_DIM} for self_attention (was {projection_dim})")
+            self.projection_dim = GLOBAL_PROJECTED_DIM
+        else:
+            self.projection_dim = projection_dim
+            
         self.projection_layers = nn.ModuleList()
 
         for model in models:
-            if projection_dim > 0:
+            if self.projection_dim > 0:
                 projection_layer = nn.Sequential(
-                    nn.Linear(self.get_model_dim(model), projection_dim),
+                    nn.Linear(self.get_model_dim(model), self.projection_dim),
                 )
             else:
                 print("No projection layer")
@@ -31,8 +41,8 @@ class BioFuseModel(nn.Module):
             self.chunk_size = nn.Parameter(torch.tensor(64.0))  # Initialize chunk size to 64
             self.num_models = len(models)
         elif self.fusion_method == 'self_attention':
-            self.attention = nn.MultiheadAttention(embed_dim=projection_dim, num_heads=8, batch_first=True)
-            self.layer_norm = nn.LayerNorm(projection_dim)
+            self.attention = nn.MultiheadAttention(embed_dim=self.projection_dim, num_heads=GLOBAL_NUM_HEADS, batch_first=True)
+            self.layer_norm = nn.LayerNorm(self.projection_dim)
 
     def get_model_dim(self, model_name):
         model_dims = {
@@ -93,17 +103,19 @@ class BioFuseModel(nn.Module):
         elif self.fusion_method == 'ifusion':
             fused_embedding = self._ifusion(embeddings)
         elif self.fusion_method == 'self_attention':
-            # Add the batch dimension to the embeddings
-            embeddings = [embedding.unsqueeze(0) for embedding in embeddings]
-
-            # Stack the embeddings along the model dimension, to get [batch_size, num_models, embedding_dim]
-            stacked_embeddings = torch.stack(embeddings, dim=1)
+            # Determine batch size and embedding dimensions
+            batch_size = embeddings[0].shape[0]
             
-            # Self-attention, Q, K, V are all the same in the shape [batch_size, num_models, embedding_dim]
-            # See: https://pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html
+            # Reshape all embeddings to ensure 3D: [batch_size, 1, embedding_dim]
+            embeddings = [embedding.reshape(batch_size, 1, -1) for embedding in embeddings]
+            
+            # Concatenate along sequence dimension to get [batch_size, num_models, embedding_dim]
+            stacked_embeddings = torch.cat(embeddings, dim=1)
+            
+            # Self-attention
             attn_output, _ = self.attention(stacked_embeddings, stacked_embeddings, stacked_embeddings)
 
-            # Average over the models
+            # Layer norm and return
             fused_embedding = self.layer_norm(attn_output.mean(dim=1))
         else:
             raise ValueError(f'Fusion method {self.fusion_method} not supported')
