@@ -1,4 +1,4 @@
-import warnings
+import json
 
 # Disable all warnings
 warnings.filterwarnings('ignore')
@@ -893,7 +893,7 @@ def train_classifier(features, labels, num_classes):
     classifier.fit(features, labels)
     return classifier, scaler
 
-def get_xgb_params(n_samples):
+def get_xgb_params(n_samples, params=None):
     """
     Returns XGBoost parameters based on dataset size (n_samples).
     
@@ -903,6 +903,20 @@ def get_xgb_params(n_samples):
     Returns:
         Dictionary of XGBoost parameters with sensible defaults
     """
+    if params:
+        return {
+            'max_depth': params.get('max_depth', 6),
+            'n_estimators': params.get('n_estimators', 250),
+            'learning_rate': params.get('learning_rate', 0.1),
+            'reg_alpha': params.get('reg_alpha', 0),
+            'reg_lambda': params.get('reg_lambda', 0),
+            'subsample': params.get('subsample', 1),
+            'colsample_bytree': params.get('colsample_bytree', 1),
+            'min_child_weight': params.get('min_child_weight', 1),
+            'max_bin': params.get('max_bin', 256),
+            'max_leaves': params.get('max_leaves', 0)
+        }
+
     params = dict()
 
     if n_samples < 1000:
@@ -943,7 +957,7 @@ def get_xgb_params(n_samples):
 
     return params
 
-def train_classifier2(features, labels, num_classes, multi_label=False):
+def train_classifier2(features, labels, num_classes, multi_label=False, params=None):
     """
     Trains an XGBoost classifier using the provided features and labels.
 
@@ -966,7 +980,7 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
     start = time.time()
     
     # Get XGBoost parameters based on dataset size
-    xgb_params = get_xgb_params(len(features))
+    xgb_params = get_xgb_params(len(features), params)
 
     if num_classes > 2 and not multi_label:
         print("Multi-class classification")
@@ -979,7 +993,8 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
             use_label_encoder=False,
             eval_metric='mlogloss',
             n_jobs=32,
-            tree_method='gpu_hist'           
+            tree_method='gpu_hist',
+            **{k: v for k, v in xgb_params.items() if k not in ['n_estimators', 'learning_rate', 'max_depth']}
         )
     else:
         print("Binary classification")
@@ -991,7 +1006,8 @@ def train_classifier2(features, labels, num_classes, multi_label=False):
             use_label_encoder=False,
             eval_metric='logloss',
             n_jobs=32,
-            tree_method='gpu_hist'          
+            tree_method='gpu_hist',
+            **{k: v for k, v in xgb_params.items() if k not in ['n_estimators', 'learning_rate', 'max_depth']}
         )
 
         if multi_label:
@@ -1424,7 +1440,7 @@ def get_configurations(model_names, file_path, single):
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb', ood_test_set=None, ood_data_root=None):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb', ood_test_set=None, ood_data_root=None, params=None):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
@@ -1801,7 +1817,16 @@ def main():
                    help='Classifier to use for test set')
     parser.add_argument('--ood_test_set', type=str, help='Out-of-distribution test set')
     parser.add_argument('--ood_data_root', type=str, help='Root directory for OOD dataset storage')
+    parser.add_argument('--params_json', type=str, help='Path to a JSON file with parameters')
     args = parser.parse_args()
+
+    if args.params_json:
+        with open(args.params_json, 'r') as f:
+            params = json.load(f)
+            # Overwrite args with params from JSON
+            for key, value in params.items():
+                setattr(args, key, value)
+            args.single = True
 
     train_model(args.dataset, 
                 args.models.split(','), 
@@ -1814,7 +1839,8 @@ def main():
                 args.data_root,
                 test_classifier=args.test_classifier,
                 ood_test_set=args.ood_test_set,
-                ood_data_root=args.ood_data_root)
+                ood_data_root=args.ood_data_root,
+                params=vars(args))
     
 if __name__ == "__main__":
     main()
