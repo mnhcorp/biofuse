@@ -699,6 +699,14 @@ def load_data(dataset, img_size, data_root=None):
             batch_size=batch_size,
             subset_size=subset_size
         )       
+    elif dataset == 'busi':
+        train_dataset, num_classes = DataAdapter.from_busi(data_root, 'train', img_size)
+        val_dataset, _ = DataAdapter.from_busi(data_root, 'val', img_size)
+        test_dataset, _ = DataAdapter.from_busi(data_root, 'test', img_size)
+        
+        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
         
     else:
         # MedMNIST loading logic
@@ -1416,7 +1424,7 @@ def get_configurations(model_names, file_path, single):
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb'):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb', ood_test_set=None, ood_data_root=None):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
@@ -1520,6 +1528,34 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         print("\nNo projection dims provided for the second")
         # save final results
         #append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
+        if ood_test_set:
+            print(f"\nEvaluating on OOD test set: {ood_test_set}")
+            ood_root = ood_data_root if ood_data_root else data_root
+            ood_dataloader, _, _, ood_num_classes = load_data(ood_test_set, img_size, data_root=ood_root)
+            ood_embeddings_cache, ood_labels = extract_and_cache_embeddings(ood_dataloader, model_names, ood_test_set, img_size, 'test', nocache)
+            
+            # Get the best model from the first pass
+            # For now, just use the last configuration
+            best_models = models
+            best_fusion_method = fusion_method
+            
+            biofuse_model = BioFuseModel(best_models, fusion_method=best_fusion_method, projection_dim=0)
+            biofuse_model = biofuse_model.to("cuda")
+            
+            _, _, ood_test_acc, ood_test_auc = standalone_eval(best_models,
+                                                                biofuse_model,
+                                                                train_embeddings_cache,
+                                                                train_labels,
+                                                                None,
+                                                                None,
+                                                                ood_embeddings_cache,
+                                                                ood_labels,
+                                                                ood_num_classes,
+                                                                ood_test_set,
+                                                                test_classifier_fn=get_classifier_fn(test_classifier))
+            
+            print(f"OOD Test Accuracy: {ood_test_acc:.4f}")
+            print(f"OOD Test AUC-ROC: {ood_test_auc:.4f}")
         return
 
     # Second pass: Train with learnable layers using the best configuration
@@ -1763,6 +1799,8 @@ def main():
     parser.add_argument('--test_classifier', type=str, default='xgb',
                    choices=['xgb', 'cat', 'nn_mlp', 'nn_cnn', 'nn_resnet', 'nn_cnn_adv'],
                    help='Classifier to use for test set')
+    parser.add_argument('--ood_test_set', type=str, help='Out-of-distribution test set')
+    parser.add_argument('--ood_data_root', type=str, help='Root directory for OOD dataset storage')
     args = parser.parse_args()
 
     train_model(args.dataset, 
@@ -1774,7 +1812,9 @@ def main():
                 args.single,
                 args.nocache,
                 args.data_root,
-                test_classifier=args.test_classifier)  # Add this argument
+                test_classifier=args.test_classifier,
+                ood_test_set=args.ood_test_set,
+                ood_data_root=args.ood_data_root)
     
 if __name__ == "__main__":
     main()

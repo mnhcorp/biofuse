@@ -10,6 +10,7 @@ import glob
 from PIL import Image
 import torch
 from torchvision import transforms
+from sklearn.model_selection import train_test_split
 
 class ImageNetTestDataset(Dataset):
     """Custom dataset for ImageNet test data with flat directory structure"""
@@ -38,6 +39,56 @@ import random
 class DataAdapter:
     """Adapter class for loading different dataset formats into BioFuseImageDataset"""
     
+    @classmethod
+    def from_busi(cls, root: str, split: str, img_size: int) -> Tuple[BioFuseImageDataset, int]:
+        """Create dataset from BUSI dataset
+        
+        Args:
+            root: Path to the BUSI dataset directory
+            split: One of 'train', 'val', or 'test'
+            img_size: Size of the images
+            
+        Returns:
+            tuple: (BioFuseImageDataset, num_classes)
+        """
+        busi_root = os.path.join(root, 'busi')
+        benign_paths = glob.glob(os.path.join(busi_root, 'benign', '*.png'))
+        normal_paths = glob.glob(os.path.join(busi_root, 'normal', '*.png'))
+        malignant_paths = glob.glob(os.path.join(busi_root, 'malignant', '*.png'))
+
+        # Combine benign and normal as class 0, malignant as class 1
+        benign_images = benign_paths + normal_paths
+        malignant_images = malignant_paths
+        
+        images = benign_images + malignant_images
+        labels = [0] * len(benign_images) + [1] * len(malignant_images)
+
+        # Stratified split into train, val, test
+        train_images, test_images, train_labels, test_labels = train_test_split(
+            images, labels, test_size=0.3, random_state=42, stratify=labels)
+        
+        val_images, test_images, val_labels, test_labels = train_test_split(
+            test_images, test_labels, test_size=0.5, random_state=42, stratify=test_labels)
+
+        if split == 'train':
+            split_images, split_labels = train_images, train_labels
+        elif split == 'val':
+            split_images, split_labels = val_images, val_labels
+        else: # split == 'test'
+            split_images, split_labels = test_images, test_labels
+            
+        dataset = BioFuseImageDataset(
+            images=split_images,
+            labels=split_labels,
+            path=True,
+            rgb=True, # BUSI images are grayscale but we'll convert to RGB
+            resize=True,
+            img_size=img_size
+        )
+        
+        return dataset, 2
+
+
     @classmethod
     def from_imagenet(cls, root: str, split: str, batch_size: int = 32, num_workers: int = 1, subset_size: float = 1.0) -> Tuple[DataLoader, int]:
         """Create DataLoader from ImageNet directory structure
