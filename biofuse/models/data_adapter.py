@@ -51,10 +51,9 @@ class DataAdapter:
         Returns:
             tuple: (BioFuseImageDataset, num_classes)
         """
-        busi_root = os.path.join(root, 'busi')
-        benign_paths = glob.glob(os.path.join(busi_root, 'benign', '*.png'))
-        normal_paths = glob.glob(os.path.join(busi_root, 'normal', '*.png'))
-        malignant_paths = glob.glob(os.path.join(busi_root, 'malignant', '*.png'))
+        benign_paths = [p for p in glob.glob(os.path.join(root, 'benign', '*.png')) if '_mask' not in p]
+        normal_paths = [p for p in glob.glob(os.path.join(root, 'normal', '*.png')) if '_mask' not in p]
+        malignant_paths = [p for p in glob.glob(os.path.join(root, 'malignant', '*.png')) if '_mask' not in p]
 
         # Combine benign and normal as class 0, malignant as class 1
         benign_images = benign_paths + normal_paths
