@@ -1,3 +1,4 @@
+import warnings
 import json
 
 # Disable all warnings
@@ -1801,6 +1802,15 @@ def get_classifier_fn(classifier_name):
     return classifiers.get(classifier_name, train_classifier2)
 
 def main():
+    model_legend = { 'BC': 'BioMedCLIP',
+                    'PC': 'PubMedCLIP',
+                    'CO': 'CONCH',
+                    'RD': 'rad-dino',
+                    'UN': 'UNI',
+                    'PG': 'Prov-GigaPath',
+                    'HB': 'Hibou-B',
+                    'CA': 'CheXagent',
+                    'UN2': 'UNI2',}
     parser = argparse.ArgumentParser(description='BioFuse v1.1 (AutoFuse)')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--img_size', type=int, default=28, help='Image size')
@@ -1827,6 +1837,8 @@ def main():
             for key, value in params.items():
                 setattr(args, key, value)
             args.single = True
+            if 'models' in params:
+                args.models = ','.join([model_legend.get(m, m) for m in params['models'].split(',')])
 
     train_model(args.dataset, 
                 args.models.split(','), 
