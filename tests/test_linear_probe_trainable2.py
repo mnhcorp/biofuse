@@ -46,7 +46,7 @@ import torch.nn.functional as F
 
 
 PATIENCE = 25
-CACHE_DIR = '/data/biofuse-embedding-cache2'
+CACHE_DIR = '/data/biofuse-embedding-cache3'
 
 def get_cache_path(dataset, model, img_size, split):
     return os.path.join(CACHE_DIR, f'{dataset}_{model}_{img_size}_{split}.pkl')
@@ -1334,8 +1334,8 @@ def extract_all_embeddings(model_names, dataloaders, dataset, img_size, nocache)
     """
     Extracts and caches embeddings for all models and data splits.
 
-    This function iterates through each model, loads it once, and then processes
-    all data splits (train, val, test) before moving to the next model.
+    This function first checks if cached embeddings exist before loading models,
+    and only loads a model when necessary to extract embeddings.
     """
     all_embeddings = {'train': {}, 'val': {}, 'test': {}}
     all_labels = {'train': None, 'val': None, 'test': None}
@@ -1343,7 +1343,29 @@ def extract_all_embeddings(model_names, dataloaders, dataset, img_size, nocache)
     for model_name in model_names:
         print(f"\nProcessing model: {model_name}")
         
-        # Load model and preprocessor once
+        # Check if cached embeddings exist for all splits before loading the model
+        all_cached = True
+        if not nocache:
+            for split in ['train', 'val', 'test']:
+                if dataloaders[split] is None:
+                    continue
+                    
+                cached_data = load_embeddings_from_cache(dataset, model_name, img_size, split)
+                if cached_data:
+                    print(f"Found cached embeddings for {model_name} ({split})")
+                    all_embeddings[split][model_name], all_labels[split] = cached_data
+                else:
+                    all_cached = False
+                    break
+        else:
+            all_cached = False
+            
+        # Skip model loading if all embeddings are cached
+        if all_cached:
+            print(f"Using cached embeddings for all splits of {model_name}")
+            continue
+            
+        # Load model only if needed
         try:
             extractor = PreTrainedEmbedding(model_name)
             preprocessor = MultiModelPreprocessor([model_name])
@@ -1360,7 +1382,7 @@ def extract_all_embeddings(model_names, dataloaders, dataset, img_size, nocache)
             if dataloader is None:
                 continue
 
-            # Check cache first
+            # Check cache again (might have loaded some splits above)
             if not nocache:
                 cached_data = load_embeddings_from_cache(dataset, model_name, img_size, split)
                 if cached_data:
@@ -1399,6 +1421,7 @@ def extract_all_embeddings(model_names, dataloaders, dataset, img_size, nocache)
                 save_embeddings_to_cache(current_embeddings, all_labels[split], dataset, model_name, img_size, split)
                 print(f"Saved embeddings for {model_name} ({split}) to cache")
 
+        # Only log resource usage if model was actually loaded
         log_resource_usage(dataset, model_name, total_extraction_time, vram_allocated, vram_reserved)
 
         # Clean up memory
@@ -1510,8 +1533,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     if dataset in ['imagenet', 'imagenet-mini']:
         with open(f"{dataset}_test_labels.txt", 'w') as f:
             for label in test_labels:
-                f.write(f"{label}
-")
+                f.write(f"{label}")
 
     best_config = None
     best_val_acc = 0
