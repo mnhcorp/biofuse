@@ -88,7 +88,17 @@ class MultiModelPreprocessor:
         
         preprocessed_batches = []
         for preprocessor in self.preprocessors:
-            batch = torch.stack([preprocessor.preprocess(image) for image in images])
+            processed_list = [preprocessor.preprocess(image) for image in images]
+            
+            if isinstance(processed_list[0], torch.Tensor):
+                batch = torch.cat(processed_list, dim=0)
+            elif isinstance(processed_list[0], dict):
+                batch = {}
+                for key in processed_list[0].keys():
+                    batch[key] = torch.cat([d[key] for d in processed_list], dim=0)
+            else:
+                raise TypeError(f"Unsupported type from ModelPreprocessor: {type(processed_list[0])}")
+
             preprocessed_batches.append(batch)
             
         return preprocessed_batches
