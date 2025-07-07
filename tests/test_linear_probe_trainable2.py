@@ -665,7 +665,7 @@ def parse_labels_from_path(path):
     
     return [int(label) for label in label_part]
 
-def load_data(dataset, img_size, data_root=None):
+def load_data(dataset, img_size, data_root=None, batch_size=32):
     """
     Load data for a given dataset.
 
@@ -687,7 +687,6 @@ def load_data(dataset, img_size, data_root=None):
             raise ValueError("data_root must be specified for ImageNet dataset")
         
         # Configure parameters based on dataset type
-        batch_size = 1
         subset_size = 1.0 if dataset == 'imagenet' else 0.01  # Use 1% for imagenet-mini
         
         # Load ImageNet data using the simplified approach
@@ -718,9 +717,9 @@ def load_data(dataset, img_size, data_root=None):
         val_dataset, _ = DataAdapter.from_busi(data_root, 'val', img_size)
         test_dataset, _ = DataAdapter.from_busi(data_root, 'test', img_size)
         
-        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
-        val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
-        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
         
     else:
         # MedMNIST loading logic
@@ -728,9 +727,9 @@ def load_data(dataset, img_size, data_root=None):
         val_dataset, _ = DataAdapter.from_medmnist(dataset, 'val', img_size)
         test_dataset, _ = DataAdapter.from_medmnist(dataset, 'test', img_size)
         
-        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
-        val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
-        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn)
 
     print(f"Number of training batches: {len(train_loader)}")
     print(f"Number of validation batches: {len(val_loader)}")
@@ -1357,12 +1356,12 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split, n
         model_labels = []
 
         start_time = time.time()
-        for image, label in tqdm(dataloader, desc=f"Extracting embeddings for {model} ({split})"):
-            processed_image = preprocessor.preprocess(image[0])[0]
+        for images, batch_labels in tqdm(dataloader, desc=f"Extracting embeddings for {model} ({split})"):
+            processed_images = preprocessor.preprocess(images)[0]
             with torch.no_grad():
-                embeddings = extractor(processed_image)
-            model_embeddings.append(embeddings.squeeze(0))
-            model_labels.append(label)
+                embeddings = extractor(processed_images)
+            model_embeddings.append(embeddings)
+            model_labels.append(batch_labels)
         extraction_time = time.time() - start_time
         
         resource_usage[model] = {
@@ -1377,16 +1376,14 @@ def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split, n
         torch.cuda.empty_cache()
 
 
-        cached_embeddings[model] = torch.stack(model_embeddings)
+        cached_embeddings[model] = torch.cat(model_embeddings)
         
         if len(labels) == 0:
             if split == 'test' and dataset in ['imagenet', 'imagenet-mini']:
                 # For ImageNet test set, store filenames instead of labels
-                labels = model_labels  # These are the filenames
-            elif isinstance(model_labels[0], torch.Tensor) and model_labels[0].dim() > 0:
-                labels = torch.stack(model_labels)
+                labels = np.concatenate(model_labels)
             else:
-                labels = torch.tensor(model_labels)
+                labels = torch.cat(model_labels)
 
         if not nocache:
             save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size, split)
@@ -1472,7 +1469,7 @@ def get_configurations(model_names, file_path, single):
     return configurations
         
 # Training the model with validation-informed adjustment
-def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb', ood_test_set=None, ood_data_root=None, params=None):
+def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb', ood_test_set=None, ood_data_root=None, params=None, batch_size=32):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
@@ -1861,6 +1858,7 @@ def main():
     parser.add_argument('--models', type=str, default='BioMedCLIP', help='List of pre-trained models, delimited by comma')
     parser.add_argument('--projections', type=parse_projections, default=[0], help='List of projection dimensions, delimited by comma')
     parser.add_argument('--fusion_methods', type=str, default='concat', help='Fusion methods separated by comma')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for embedding extraction')
     # add --single
     parser.add_argument('--single', action='store_true', help='Run the model with a single specified configuration')
     parser.add_argument('--nocache', action='store_true', help='Disable use of cached embeddings')
@@ -1897,7 +1895,8 @@ def main():
                 test_classifier=args.test_classifier,
                 ood_test_set=args.ood_test_set,
                 ood_data_root=args.ood_data_root,
-                params=vars(args))
+                params=vars(args),
+                batch_size=args.batch_size)
     
 if __name__ == "__main__":
     main()
