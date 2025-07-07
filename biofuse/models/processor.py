@@ -82,6 +82,13 @@ class MultiModelPreprocessor:
         model_info = MODEL_MAP
         self.preprocessors = [ModelPreprocessor(name, model_info[name]) for name in model_names]
 
-    def preprocess(self, image):
-        preprocessed_images = [preprocessor.preprocess(image) for preprocessor in self.preprocessors]
-        return preprocessed_images
+    def preprocess(self, images):
+        if not isinstance(images, list):
+            images = [images]
+        
+        preprocessed_batches = []
+        for preprocessor in self.preprocessors:
+            batch = torch.stack([preprocessor.preprocess(image) for image in images])
+            preprocessed_batches.append(batch)
+            
+        return preprocessed_batches
