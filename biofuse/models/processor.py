@@ -98,6 +98,8 @@ class MultiModelPreprocessor:
                 batch = {}
                 for key in processed_list[0].keys():
                     batch[key] = torch.cat([d[key] for d in processed_list], dim=0)
+            elif hasattr(processed_list[0], 'pixel_values'):
+                batch = {'pixel_values': torch.cat([d.pixel_values for d in processed_list], dim=0)}
             else:
                 raise TypeError(f"Unsupported type from ModelPreprocessor: {type(processed_list[0])}")
 
