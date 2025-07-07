@@ -978,9 +978,11 @@ def train_classifier2(features, labels, num_classes, multi_label=False, params=N
         features (array-like): The input features for training the classifier.
         labels (array-like): The corresponding labels for the input features.
         num_classes (int): The number of classes in the classification problem.
+        multi_label (bool): Whether this is a multi-label classification problem.
+        params (dict, optional): Custom XGBoost parameters.
 
     Returns:
-        None
+        tuple: (classifier, scaler, training_time) - The trained classifier, scaler, and training time.
     """
     print("Training XGBoost classifier...")
 
@@ -1031,9 +1033,10 @@ def train_classifier2(features, labels, num_classes, multi_label=False, params=N
     classifier.fit(features, labels)
 
     end = time.time()
-    print(f"Time taken to train XGBoost classifier: {end - start:.2f} seconds")
+    training_time = end - start
+    #print(f"Time taken to train XGBoost classifier: {training_time:.2f} seconds")
 
-    return classifier, scaler
+    return classifier, scaler, training_time
 
 def train_catboost_classifier(features, labels, num_classes, multi_label=False):
     """
@@ -1205,6 +1208,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
         if test_labels is not None and len(test_labels.shape) == 3:
             test_labels = test_labels.squeeze(1)
 
+    xgb_train_time = 0  # Initialize training time tracking
+    xgb_val_inf_time = 0  # Initialize validation inference time tracking
+    start_inf = 0  # Will be set later
+
     with torch.no_grad():
         # Process train embeddings
         train_fused_embeddings = biofuse_model([train_embeddings[model].to(device) for model in models])
@@ -1235,9 +1242,11 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
                     val_classifier = pickle.load(f)
                 with open(scaler_path, 'rb') as f:
                     val_scaler = pickle.load(f)
+                # No training time for cached model
             else:
                 # Train a new classifier on fused embeddings
-                val_classifier, val_scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+                val_classifier, val_scaler, model_train_time = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+                xgb_train_time += model_train_time
                 
                 # Save the trained model
                 print("Saving trained model...")
@@ -1248,15 +1257,17 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
                     pickle.dump(val_scaler, f)
         else:
             # For non-ImageNet datasets, train classifier as usual
-            val_classifier, val_scaler = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+            val_classifier, val_scaler, model_train_time = train_classifier2(train_fused_embeddings_np, train_labels_np, num_classes, multi_label)
+            xgb_train_time += model_train_time
 
         # Train test classifier if a different one is requested
         test_classifier, test_scaler = None, None
         if test_classifier_fn is not None:
             # Simple fix - check if test_classifier_fn is different than default
             if test_classifier_fn is not None and test_classifier_fn.__name__ != train_classifier2.__name__:
-                test_classifier, test_scaler = test_classifier_fn(train_fused_embeddings_np, train_labels_np, 
+                test_classifier, test_scaler, test_train_time = test_classifier_fn(train_fused_embeddings_np, train_labels_np, 
                                                                 num_classes, multi_label)
+                xgb_train_time += test_train_time
             else:
                 test_classifier, test_scaler = val_classifier, val_scaler
 
@@ -1276,6 +1287,10 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             if not (test_classifier_fn and 'nn_' in test_classifier_fn.__name__):
                 val_fused_embeddings_np = val_scaler.transform(val_fused_embeddings_np)
 
+            # Start timing validation inference
+            import time
+            start_inf = time.time()
+            
             # Save validation predictions for ImageNet datasets
             if dataset in ['imagenet', 'imagenet-mini']:
                 val_predictions = val_classifier.predict_proba(val_fused_embeddings_np)
@@ -1284,6 +1299,11 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
             # Evaluate on validation set
             val_accuracy = evaluate_model(val_classifier, val_fused_embeddings_np, val_labels_np, dataset)
             val_auc_roc = compute_auc_roc(val_classifier, val_fused_embeddings_np, val_labels_np, num_classes, dataset)
+            
+            # End timing validation inference
+            end_inf = time.time()
+            xgb_val_inf_time = end_inf - start_inf
+            #print(f"Time taken for validation inference: {xgb_val_inf_time:.2f} seconds")
 
             if dataset in ['imagenet', 'imagenet-mini']:
                 val_top1, val_top5 = val_accuracy
@@ -1327,7 +1347,12 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
                 if test_auc_roc is not None:
                     print(f"Test AUC-ROC: {test_auc_roc:.4f}")
 
-    return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
+    # Print total XGBoost training and inference time
+    # print(f"Total XGBoost training time: {xgb_train_time:.2f} seconds")
+    # print(f"Total XGBoost validation inference time: {xgb_val_inf_time:.2f} seconds")
+
+    # Return timings along with accuracy metrics
+    return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc, xgb_train_time, xgb_val_inf_time
 
 
 def extract_all_embeddings(model_names, dataloaders, dataset, img_size, nocache):
@@ -1533,7 +1558,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     if dataset in ['imagenet', 'imagenet-mini']:
         with open(f"{dataset}_test_labels.txt", 'w') as f:
             for label in test_labels:
-                f.write(f"{label}")
+                f.write(f"{label}\n")
 
     best_config = None
     best_val_acc = 0
@@ -1546,6 +1571,8 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
     # First pass: Evaluate configurations with a single epoch
     print("\nFirst pass: Evaluating model combinations")
+    total_xgb_eval_time = 0  # Track total XGBoost training time
+    total_xgb_val_inf_time = 0  # Track total validation inference time
     for models in configurations:
         for fusion_method in fusion_methods:
             print(f"\nEvaluating configuration: Models: {models}, Fusion method: {fusion_method}")
@@ -1556,7 +1583,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             run_file_path = os.path.join(current_run_dir, f"{dataset}_{int(time.time())}.txt")
             with open(run_file_path, 'w') as f:
                 f.write(','.join(models))
-            print(f"Current run written to: {run_file_path}")
+            #print(f"Current run written to: {run_file_path}")
 
             # Initialize the BioFuse model
             biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=0)
@@ -1572,7 +1599,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
 
             start = time.time()
             # Compute validation accuracy using standalone_eval
-            val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(models, 
+            val_accuracy, val_auc_roc, test_acc, test_auc, xgb_train_time, xgb_val_inf_time = standalone_eval(models, 
                                                                             biofuse_model, 
                                                                             train_embeddings_cache, 
                                                                             train_labels, 
@@ -1585,6 +1612,13 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
                                                                             test_classifier_fn=get_classifier_fn(test_classifier))
             end = time.time()
             print(f"Time taken to evaluate configuration: {end - start:.2f} seconds")
+            print(f"XGBoost training time for this configuration: {xgb_train_time:.2f} seconds")
+            print(f"XGBoost validation inference time for this configuration: {xgb_val_inf_time:.2f} seconds")
+            
+            # Accumulate total times
+            total_xgb_eval_time += xgb_train_time
+            total_xgb_val_inf_time += xgb_val_inf_time
+            
             # early exit
             #sys.exit(0)
             
@@ -1594,18 +1628,26 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             xgb_params = get_xgb_params(len(train_embeddings_cache[models[0]]))
             n_estimators = xgb_params['n_estimators']
 
-            # Save this result
-            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, n_estimators)
+            # Save this result with XGBoost timing metrics
+            append_results_to_csv(dataset, img_size, models, fusion_method, 0, 1, val_accuracy, val_auc_roc, test_acc, test_auc, n_estimators, xgb_train_time, xgb_val_inf_time)
             
             # Clean up the current run file
             if os.path.exists(run_file_path):
                 os.remove(run_file_path)
-                print(f"Removed current run file: {run_file_path}")
+                #print(f"Removed current run file: {run_file_path}")
 
             # if val_accuracy > best_val_acc:            
             #     best_val_acc = val_accuracy
             #     best_config = (models, 0, fusion_method)
             #     best_val_auc_roc = val_auc_roc                
+
+    # Print summary of XGBoost times across all combinations
+    print("\n----- XGBoost Timing Summary -----")
+    print(f"Total XGBoost training time (xgb_eval_time): {total_xgb_eval_time:.2f} seconds")
+    print(f"Total XGBoost validation inference time (xgb_eval_time_inf): {total_xgb_val_inf_time:.2f} seconds")
+    print(f"Average XGBoost training time per combination: {total_xgb_eval_time / (len(configurations) * len(fusion_methods)):.2f} seconds")
+    print(f"Average XGBoost validation inference time per combination: {total_xgb_val_inf_time / (len(configurations) * len(fusion_methods)):.2f} seconds")
+    print("----------------------------------")
 
     # print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
     # print(f"Best Validation Accuracy: {best_val_acc:.4f}")
@@ -1615,7 +1657,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     if len(projection_dims) == 1 and projection_dims[0] == 0:
         print("\nNo projection dims provided for the second")
         # save final results
-        #append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc_roc, best_test_acc, best_test_auc_roc)
+        #append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc, best_test_acc, best_test_auc)
         if ood_test_set:
             print(f"\nEvaluating on OOD test set: {ood_test_set}")
             ood_root = ood_data_root if ood_data_root else data_root
@@ -1632,7 +1674,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             biofuse_model = BioFuseModel(best_models, fusion_method=best_fusion_method, projection_dim=0)
             biofuse_model = biofuse_model.to("cuda")
             
-            _, _, ood_test_acc, ood_test_auc = standalone_eval(best_models,
+            _, _, ood_test_acc, ood_test_auc, _, _ = standalone_eval(best_models,
                                                                 biofuse_model,
                                                                 train_embeddings_cache,
                                                                 train_labels,
@@ -1727,11 +1769,11 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         classifier.eval()
 
         # Compute validation accuracy using standalone_eval
-        val_accuracy, val_auc_roc, test_acc, test_auc = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset, test_classifier_fn=get_classifier_fn(test_classifier))
+        val_accuracy, val_auc_roc, test_acc, test_auc, xgb_train_time, xgb_val_inf_time = standalone_eval(best_models, biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset, test_classifier_fn=get_classifier_fn(test_classifier))
         #harmonic_mean_val = weighted_mean_with_penalty(val_accuracy, val_auc_roc)
 
         # Save this result
-        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_acc, test_auc)#, harmonic_mean_val)
+        append_results_to_csv(dataset, img_size, best_models, best_fusion_method, projection_dim, epoch+1, val_accuracy, val_auc_roc, test_acc, test_auc, 0, xgb_train_time, xgb_val_inf_time)#, harmonic_mean_val)
 
         
         if val_accuracy > best_val_acc:
@@ -1747,17 +1789,17 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     # Compute test accuracy for the best configuration
     best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=best_config[1])
     best_biofuse_model = best_biofuse_model.to("cuda")
-    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset, test_classifier_fn=get_classifier_fn(test_classifier))
+    best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc, xgb_train_time, xgb_val_inf_time = standalone_eval(best_config[0], best_biofuse_model, train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels, num_classes, dataset, test_classifier_fn=get_classifier_fn(test_classifier))
     #best_harmonic_mean = harmonic_mean(best_val_acc, best_val_auc)
 
     print(f"Test Accuracy for Best Configuration: {best_test_acc:.4f}")
     print(f"Test AUC-ROC for Best Configuration: {best_test_auc_roc:.4f}")
 
     # Save final results
-    append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc)
+    append_results_to_csv(dataset, img_size, best_config[0], best_config[2], best_config[1], num_epochs, best_val_acc, best_val_auc, best_test_acc, best_test_auc_roc, 0, xgb_train_time, xgb_val_inf_time)
 
 
-def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc, n_estimators):
+def append_results_to_csv(dataset, img_size, model_names, fusion_method, projection_dim, epochs, val_accuracy, val_auc, test_accuracy, test_auc, n_estimators, xgb_train_time=0, xgb_val_inf_time=0):
     """
     Appends the results to a CSV file.
 
@@ -1773,6 +1815,8 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
     - test_accuracy: The test accuracy (or tuple of (top1, top5) for ImageNet).
     - test_auc: The test AUC-ROC score.
     - n_estimators: Number of estimators used in XGBoost.
+    - xgb_train_time: XGBoost model training time in seconds.
+    - xgb_val_inf_time: XGBoost validation inference time in seconds.
 
     Returns:
     - None
@@ -1786,17 +1830,18 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
         if not file_exists:
             if dataset in ['imagenet', 'imagenet-mini']:
                 writer.writerow(['Dataset', 'Image Size', 'Models', 'Fusion Method', 'Projection Dim', 'Epochs', 
-                               'Val Top-1 Acc', 'Val Top-5 Acc', 'Test Top-1 Acc', 'Test Top-5 Acc'])
+                               'Val Top-1 Acc', 'Val Top-5 Acc', 'Test Top-1 Acc', 'Test Top-5 Acc', 'XGBoost Train Time', 'XGBoost Val Inference Time'])
             else:
                 writer.writerow(['Dataset', 'Image Size', 'Models', 'Fusion Method', 'Projection Dim', 'Epochs', 
-                               'Val Accuracy', 'Val AUC-ROC', 'Test Accuracy', 'Test AUC-ROC'])
+                               'Val Accuracy', 'Val AUC-ROC', 'Test Accuracy', 'Test AUC-ROC', 'XGBoost Train Time', 'XGBoost Val Inference Time'])
 
         # Handle ImageNet results differently
         if dataset in ['imagenet', 'imagenet-mini']:
             val_top1, val_top5 = val_accuracy if isinstance(val_accuracy, tuple) else (0, 0)
             test_top1, test_top5 = test_accuracy if isinstance(test_accuracy, tuple) else (0, 0)
             writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs,
-                           f'{val_top1:.4f}', f'{val_top5:.4f}', f'{test_top1:.4f}', f'{test_top5:.4f}'])
+                           f'{val_top1:.4f}', f'{val_top5:.4f}', f'{test_top1:.4f}', f'{test_top5:.4f}', 
+                           f'{xgb_train_time:.2f}', f'{xgb_val_inf_time:.2f}'])
         else:
             # replace Nones with 0 for test or val accuracy
             if val_accuracy is None:
@@ -1807,7 +1852,8 @@ def append_results_to_csv(dataset, img_size, model_names, fusion_method, project
                 test_auc = 0
             
             writer.writerow([dataset, img_size, ','.join(model_names), fusion_method, projection_dim, epochs,
-                           f'{val_accuracy:.4f}', f'{val_auc:.4f}', f'{test_accuracy:.4f}', f'{test_auc:.4f}'])
+                           f'{val_accuracy:.4f}', f'{val_auc:.4f}', f'{test_accuracy:.4f}', f'{test_auc:.4f}', 
+                           f'{xgb_train_time:.2f}', f'{xgb_val_inf_time:.2f}'])
 
 def parse_projections(proj_str):
     if proj_str:
