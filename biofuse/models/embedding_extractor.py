@@ -41,7 +41,7 @@ class PreTrainedEmbedding(nn.Module):
             self.model, self.processor = create_model_from_pretrained(model_info["model"])
             self.tokenizer = get_tokenizer(model_info["model"])
         elif self.model_name == "CLIP":
-            self.model = CLIPModel.from_pretrained(model_info["model"])
+            self.model = CLIPModel.from_pretrained(model_info["model"], trust_remote_code=True, use_safetensors=True)
             self.processor = CLIPProcessor.from_pretrained(model_info["model"])
         elif self.model_name == "BioMistral":
             self.model = AutoModel.from_pretrained(model_info["model"])
@@ -58,7 +58,7 @@ class PreTrainedEmbedding(nn.Module):
             self.model = timm.create_model(model_info["model"], pretrained=True, img_size=224)
             self.processor = model_info["tokenizer"]
         elif self.model_name == "PubMedCLIP":
-            self.model = CLIPModel.from_pretrained(model_info["model"])
+            self.model = CLIPModel.from_pretrained(model_info["model"], trust_remote_code=True, use_safetensors=True)
             self.processor = CLIPProcessor.from_pretrained(model_info["model"])
         elif self.model_name == "rad-dino":
             self.model = AutoModel.from_pretrained(model_info["model"])

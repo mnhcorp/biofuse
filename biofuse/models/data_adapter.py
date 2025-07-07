@@ -54,6 +54,10 @@ class DataAdapter:
         benign_paths = [p for p in glob.glob(os.path.join(root, 'benign', '*.png')) if '_mask' not in p]
         normal_paths = [p for p in glob.glob(os.path.join(root, 'normal', '*.png')) if '_mask' not in p]
         malignant_paths = [p for p in glob.glob(os.path.join(root, 'malignant', '*.png')) if '_mask' not in p]
+        # print lens
+        print(f'Benign images: {len(benign_paths)}')
+        print(f'Normal images: {len(normal_paths)}')
+        print(f'Malignant images: {len(malignant_paths)}')
 
         # Combine benign and normal as class 0, malignant as class 1
         benign_images = benign_paths + normal_paths
@@ -61,6 +65,10 @@ class DataAdapter:
         
         images = benign_images + malignant_images
         labels = [0] * len(benign_images) + [1] * len(malignant_images)
+        # what is the distribution of labels?
+        unique, counts = np.unique(labels, return_counts=True)
+        label_distribution = dict(zip(unique, counts))
+        print(f'Label distribution: {label_distribution}')
 
         # Stratified split into train, val, test
         train_images, test_images, train_labels, test_labels = train_test_split(
@@ -75,9 +83,17 @@ class DataAdapter:
             split_images, split_labels = val_images, val_labels
         else: # split == 'test'
             split_images, split_labels = test_images, test_labels
+            # How many images are in the test set?
+            print(f'Test set size: {len(split_images)}')
+            # What is the distribution of labels in the test set?
+            unique, counts = np.unique(split_labels, return_counts=True)
+            label_distribution = dict(zip(unique, counts))
+            print(f'Test set label distribution: {label_distribution}')
+
             
         transform = transforms.Compose([
-            transforms.Resize((img_size, img_size)),
+            #transforms.Resize((img_size, img_size)),
+            transforms.CenterCrop(img_size),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
@@ -86,9 +102,10 @@ class DataAdapter:
             images=split_images,
             labels=split_labels,
             path=True,
-            rgb=True, # BUSI images are grayscale but we'll convert to RGB
-            resize=True,
-            img_size=img_size
+            rgb=False, # BUSI images are grayscale but we'll convert to RGB
+            resize=False,
+            img_size=img_size,
+            transform=transform
         )
         
         return dataset, 2
@@ -168,7 +185,7 @@ class DataAdapter:
             transforms.Normalize(mean=[0.5], std=[0.5])
         ])
         
-        data = DataClass(split=split, download=True, transform=transform, root=root)
+        data = DataClass(split=split, download=True, transform=transform, root=root, size=img_size)
         
         # Create BioFuseImageDataset
         # Extract images and labels from the MedMNIST dataset
@@ -207,7 +224,7 @@ class DataAdapter:
             path=(dataset_type == 'path'),
             rgb=True,
             resize=True,
-            size=img_size,
+            img_size=img_size,
             transform=transform
         )
         

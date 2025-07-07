@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from PIL import Image, ImageFile
 import numpy as np
 from typing import Union, List
+import cv2
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -15,7 +16,8 @@ class BioFuseImageDataset(Dataset):
                  path: bool = True,
                  rgb: bool = False,
                  resize: bool = False,
-                 img_size: int = 224):
+                 img_size: int = 224,
+                 transform=None):
         """
         Args:
             images: List of image paths or numpy array of images
@@ -31,6 +33,7 @@ class BioFuseImageDataset(Dataset):
         self.rgb = rgb
         self.resize = resize
         self.img_size = img_size
+        self.transform = transform
         self.logger = logging.getLogger(__name__)
 
     def __len__(self) -> int:
@@ -45,6 +48,8 @@ class BioFuseImageDataset(Dataset):
                     image = image.convert('RGB')
                 if self.resize:
                     image = image.resize((self.img_size, self.img_size), Image.Resampling.BILINEAR)
+                if self.transform:
+                    image = self.transform(image)
             except (OSError, IOError) as e:
                 self.logger.warning(f"Error loading image {img_path}: {e}")
                 return None, self.labels[idx]

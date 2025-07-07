@@ -46,7 +46,7 @@ import torch.nn.functional as F
 
 
 PATIENCE = 25
-CACHE_DIR = '/data/biofuse-embedding-cache'
+CACHE_DIR = '/data/biofuse-embedding-cache2'
 
 def get_cache_path(dataset, model, img_size, split):
     return os.path.join(CACHE_DIR, f'{dataset}_{model}_{img_size}_{split}.pkl')
@@ -1548,8 +1548,10 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
         if ood_test_set:
             print(f"\nEvaluating on OOD test set: {ood_test_set}")
             ood_root = ood_data_root if ood_data_root else data_root
-            ood_dataloader, _, _, ood_num_classes = load_data(ood_test_set, img_size, data_root=ood_root)
-            ood_embeddings_cache, ood_labels = extract_and_cache_embeddings(ood_dataloader, model_names, ood_test_set, img_size, 'test', nocache)
+            _, _, ood_dataloader, ood_num_classes = load_data(ood_test_set, img_size, data_root=ood_root)
+            # print size of ood_dataloader
+            print(f"Number of OOD test samples: {len(ood_dataloader.dataset)}")
+            ood_embeddings_cache, ood_labels = extract_and_cache_embeddings(ood_dataloader, model_names, ood_test_set, img_size, 'test', nocache=True)
             
             # Get the best model from the first pass
             # For now, just use the last configuration
@@ -1840,6 +1842,8 @@ def main():
             if 'models' in params:
                 args.models = ','.join([model_legend.get(m, m) for m in params['models'].split(',')])
 
+    # set nocache to True
+    #args.nocache = True
     train_model(args.dataset, 
                 args.models.split(','), 
                 args.num_epochs, 
