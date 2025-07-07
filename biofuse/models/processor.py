@@ -57,7 +57,9 @@ class ModelPreprocessor:
                 else:
                     if self.model_name == "Hibou-B":
                         image = image.convert('RGB')
-                    preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda")
+                    preprocessed_image = self.processor(images=image, return_tensors="pt")
+                    if hasattr(preprocessed_image, 'pixel_values'):
+                        preprocessed_image['pixel_values'] = preprocessed_image.pixel_values.to("cuda")
             else:
                 preprocessed_image = image
         elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
