@@ -1330,66 +1330,85 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
     return val_accuracy, val_auc_roc, test_accuracy, test_auc_roc
 
 
-def extract_and_cache_embeddings(dataloader, models, dataset, img_size, split, nocache=False):
-    cached_embeddings = {model: [] for model in models}
-    labels = []
-    resource_usage = {}
-    
-    for model in models:
-        if not nocache:
-            cached_data = load_embeddings_from_cache(dataset, model, img_size, split)
-        else:
-            cached_data = None
-        #cached_data = None
-        if cached_data is not None:
-            cached_embeddings[model], labels = cached_data
-            print(f"Loaded cached embeddings for {model} ({split})")
+def extract_all_embeddings(model_names, dataloaders, dataset, img_size, nocache):
+    """
+    Extracts and caches embeddings for all models and data splits.
+
+    This function iterates through each model, loads it once, and then processes
+    all data splits (train, val, test) before moving to the next model.
+    """
+    all_embeddings = {'train': {}, 'val': {}, 'test': {}}
+    all_labels = {'train': None, 'val': None, 'test': None}
+
+    for model_name in model_names:
+        print(f"\nProcessing model: {model_name}")
+        
+        # Load model and preprocessor once
+        try:
+            extractor = PreTrainedEmbedding(model_name)
+            preprocessor = MultiModelPreprocessor([model_name])
+            vram_allocated = torch.cuda.memory_allocated() / 1024**2
+            vram_reserved = torch.cuda.memory_reserved() / 1024**2
+        except Exception as e:
+            print(f"Failed to load model {model_name}. Skipping. Error: {e}")
             continue
 
-        extractor = PreTrainedEmbedding(model)
-        vram_allocated = torch.cuda.memory_allocated() / 1024**2
-        vram_reserved = torch.cuda.memory_reserved() / 1024**2
+        total_extraction_time = 0
         
-        preprocessor = MultiModelPreprocessor([model])
+        for split in ['train', 'val', 'test']:
+            dataloader = dataloaders[split]
+            if dataloader is None:
+                continue
 
-        model_embeddings = []
-        model_labels = []
+            # Check cache first
+            if not nocache:
+                cached_data = load_embeddings_from_cache(dataset, model_name, img_size, split)
+                if cached_data:
+                    print(f"Loaded cached embeddings for {model_name} ({split})")
+                    all_embeddings[split][model_name], all_labels[split] = cached_data
+                    continue
+            
+            # If not cached, extract embeddings
+            model_embeddings = []
+            model_labels = []
+            
+            start_time = time.time()
+            for images, batch_labels in tqdm(dataloader, desc=f"Extracting embeddings for {model_name} ({split})"):
+                if not images: continue
+                processed_images = preprocessor.preprocess(images)[0]
+                with torch.no_grad():
+                    embeddings = extractor(processed_images)
+                model_embeddings.append(embeddings)
+                model_labels.append(batch_labels)
+            
+            total_extraction_time += time.time() - start_time
 
-        start_time = time.time()
-        for images, batch_labels in tqdm(dataloader, desc=f"Extracting embeddings for {model} ({split})"):
-            processed_images = preprocessor.preprocess(images)[0]
-            with torch.no_grad():
-                embeddings = extractor(processed_images)
-            model_embeddings.append(embeddings)
-            model_labels.append(batch_labels)
-        extraction_time = time.time() - start_time
-        
-        resource_usage[model] = {
-            'extraction_time': extraction_time,
-            'vram_allocated': vram_allocated,
-            'vram_reserved': vram_reserved
-        }
-        
-        # Clean up to release memory
+            if not model_embeddings: continue
+
+            # Store and cache the results
+            current_embeddings = torch.cat(model_embeddings)
+            all_embeddings[split][model_name] = current_embeddings
+            
+            if all_labels[split] is None:
+                 if split == 'test' and dataset in ['imagenet', 'imagenet-mini']:
+                     all_labels[split] = np.concatenate(model_labels)
+                 else:
+                     all_labels[split] = torch.cat(model_labels)
+
+            if not nocache:
+                save_embeddings_to_cache(current_embeddings, all_labels[split], dataset, model_name, img_size, split)
+                print(f"Saved embeddings for {model_name} ({split}) to cache")
+
+        log_resource_usage(dataset, model_name, total_extraction_time, vram_allocated, vram_reserved)
+
+        # Clean up memory
         del extractor
         del preprocessor
         torch.cuda.empty_cache()
 
-
-        cached_embeddings[model] = torch.cat(model_embeddings)
-        
-        if len(labels) == 0:
-            if split == 'test' and dataset in ['imagenet', 'imagenet-mini']:
-                # For ImageNet test set, store filenames instead of labels
-                labels = np.concatenate(model_labels)
-            else:
-                labels = torch.cat(model_labels)
-
-        if not nocache:
-            save_embeddings_to_cache(cached_embeddings[model], labels, dataset, model, img_size, split)
-            print(f"Saved embeddings for {model} ({split}) to cache")
-
-    return cached_embeddings, labels, resource_usage
+    return all_embeddings['train'], all_labels['train'], \
+           all_embeddings['val'], all_labels['val'], \
+           all_embeddings['test'], all_labels['test']
 
 def harmonic_mean(val_acc, val_auc):
     return 2 / ((1 / val_acc) + (1 / val_auc))
@@ -1477,31 +1496,22 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     #print(configurations)
 
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, data_root=data_root)
+    
+    dataloaders = {'train': train_dataloader, 'val': val_dataloader, 'test': test_dataloader}
 
     # Extract and cache embeddings
     print("Extracting and caching embeddings...")
     
-    train_embeddings_cache, train_labels, train_usage = extract_and_cache_embeddings(train_dataloader, model_names, dataset, img_size, 'train', nocache)
-    val_embeddings_cache, val_labels, val_usage = extract_and_cache_embeddings(val_dataloader, model_names, dataset, img_size, 'val', nocache)
-    test_embeddings_cache, test_labels, test_usage = extract_and_cache_embeddings(test_dataloader, model_names, dataset, img_size, 'test', nocache)
-
-    # Log resource usage
-    for model in model_names:
-        total_extraction_time = train_usage.get(model, {}).get('extraction_time', 0) + \
-                                val_usage.get(model, {}).get('extraction_time', 0) + \
-                                test_usage.get(model, {}).get('extraction_time', 0)
-        
-        vram_allocated = train_usage.get(model, {}).get('vram_allocated', 0)
-        vram_reserved = train_usage.get(model, {}).get('vram_reserved', 0)
-        
-        log_resource_usage(dataset, model, total_extraction_time, vram_allocated, vram_reserved)
-
+    train_embeddings_cache, train_labels, val_embeddings_cache, val_labels, test_embeddings_cache, test_labels = extract_all_embeddings(
+        model_names, dataloaders, dataset, img_size, nocache
+    )
 
     # Save the test labels to a file
     if dataset in ['imagenet', 'imagenet-mini']:
         with open(f"{dataset}_test_labels.txt", 'w') as f:
             for label in test_labels:
-                f.write(f"{label}\n")
+                f.write(f"{label}
+")
 
     best_config = None
     best_val_acc = 0
@@ -1509,6 +1519,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     best_val_auc_roc = 0
     best_test_auc_roc = 0
     best_harmonic_mean = 0
+
 
 
     # First pass: Evaluate configurations with a single epoch
