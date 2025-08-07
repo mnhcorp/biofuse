@@ -24,6 +24,14 @@ import numpy as np
 import copy
 import medmnist
 from medmnist import INFO
+# --- MedMNIST-C robustness evaluation --------------------------------------
+sys.path.append('/data/biofuse.git2/medmnistc')
+from medmnistc.dataset import CorruptedMedMNIST
+from medmnistc.eval import Evaluator
+from medmnistc.corruptions.registry import CORRUPTIONS_DS
+MEDMNIST_ROOT = '/data/medmnist'
+MEDMNISTC_ROOT = '/data/medmnist-c'
+# ---------------------------------------------------------------------------
 import random
 import argparse
 #import ipdb
@@ -1031,6 +1039,12 @@ def train_classifier2(features, labels, num_classes, multi_label=False, params=N
             classifier = xgb_model               
 
     classifier.fit(features, labels)
+    print('==========================')
+    # if multi_label:
+    #     classifier.fit(features, labels)
+    # else:
+    #     classifier.fit(features, labels, verbose=True, early_stopping_rounds=50, eval_set=[(features, labels)])
+
 
     end = time.time()
     training_time = end - start
@@ -1150,6 +1164,157 @@ def evaluate_model(classifier, features, labels, dataset=None):
                 labels = labels.squeeze()
 
             return accuracy_score(labels, predictions)
+
+from torchvision.transforms.functional import to_pil_image
+
+def tensor_to_pil_safe(tensor):
+    """Convert tensor to PIL Image safely"""
+    from PIL import Image
+    import numpy as np
+    
+    # Move to CPU if needed
+    if tensor.is_cuda:
+        tensor = tensor.cpu()
+    
+    # Handle different tensor formats
+    if tensor.dtype == torch.uint8:
+        # Already in 0-255 range
+        np_array = tensor.numpy()
+    else:
+        # Assume 0-1 range, convert to 0-255
+        np_array = (tensor.clamp(0, 1) * 255).numpy().astype(np.uint8)
+    
+    # Handle grayscale vs RGB
+    if len(np_array.shape) == 3:  # [C, H, W]
+        if np_array.shape[0] == 1:  # Grayscale
+            np_array = np_array.squeeze(0)  # [H, W]
+        else:  # RGB
+            np_array = np_array.transpose(1, 2, 0)  # [H, W, C]
+    
+    return Image.fromarray(np_array)
+
+ # ---------------------------------------------------------------------------
+ # MedMNIST‑C robustness evaluation (helper only – not invoked yet)
+ # ---------------------------------------------------------------------------
+def eval_medmnistc(dataset, models, biofuse_model, classifier, scaler, clean_probs, clean_labels, root):
+    """
+    Evaluate a model on MedMNIST-C corruptions
+    """
+    print(f"\nEvaluating MedMNIST-C corruptions for dataset: {dataset}")
+    
+    # Just use CUDA
+    device = torch.device("cuda")
+    
+    # Get MedMNIST info
+    from medmnist import INFO
+    info = INFO[dataset]
+    task = info['task']
+    
+    # Get clean test dataset to extract true labels in the expected format
+    DataClass = getattr(medmnist, info['python_class'])
+    test_dataset_clean = DataClass(split='test', download=False, root=MEDMNIST_ROOT)
+    
+    # Check the shape of true_labels and reshape if needed
+    true_labels = test_dataset_clean.labels
+    
+    # Ensure true_labels has the correct shape (needs to be 2D)
+    if len(true_labels.shape) == 1:
+        # Reshape 1D array to 2D
+        true_labels = true_labels.reshape(-1, 1)
+        
+    corruption_types = list(CORRUPTIONS_DS[dataset].keys())
+    
+    # Initialize the evaluator with properly shaped labels
+    evaluator = Evaluator(
+        dataset_name=dataset,
+        true_labels=true_labels,  # Now properly shaped
+        corruption_types=corruption_types,
+        output_folder='./',
+        architecture=f"BioFuse-{'+'.join(models)}",
+        task=task,
+        suffix_log=f"fusion-{biofuse_model.fusion_method}"
+    )
+    
+    # Process clean predictions
+    if task == "multi-label, binary-class":
+        # Multi-label
+        y_pred_clean = clean_probs
+        # Create a threshold array of 0.5 for each class
+        num_classes = true_labels.shape[1]
+        threshold = np.array([0.5] * num_classes)
+    elif task == "binary-class":
+        # Binary
+        y_pred_clean = clean_probs[:, 1].reshape(-1, 1)
+        threshold = 0.5
+    else:
+        # Multi-class
+        y_pred_clean = clean_probs
+        threshold = None
+        
+    # Evaluate clean performance
+    evaluator.evaluate_clean(y_pred_clean, threshold=threshold)
+
+    # Cache extractors once
+    extractors = {m: PreTrainedEmbedding(m) for m in models}
+    
+    # KEY DIFFERENCE: Create SEPARATE preprocessor for EACH model
+    preprocessors = {m: MultiModelPreprocessor([m]) for m in models}
+
+    for corr in corruption_types:
+        try:
+            print(f"\nProcessing corruption: {corr}")
+            ds = CorruptedMedMNIST(dataset_name=dataset,
+                               corruption=corr,
+                               root=root,
+                               mmap_mode='r')
+            
+            #print(f"Corrupted dataset size for {corr}: {len(ds)}")
+            
+            batch_size = 128 if dataset in ['tissuemnist', 'chestmnist', 'pathmnist', 'octmnist'] else 32
+            loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
+            
+            # Cache embeddings for each model and corruption type
+            fused_batches = []
+            for imgs, _ in tqdm(loader, leave=False, desc=f'[MedMNIST‑C] {corr}'):
+                model_embeddings = []
+    
+                for model_name in models:
+                    processed = preprocessors[model_name].preprocess_tensor(imgs)
+                    
+                    with torch.no_grad():
+                        embedding = extractors[model_name](processed).detach()
+                    model_embeddings.append(embedding)
+
+                    # --- CACHE INDIVIDUAL MODEL EMBEDDINGS ---
+                    cache_path = os.path.join(CACHE_DIR, f"{dataset}_{model_name}_{corr}.pt")
+                    if not os.path.exists(cache_path):
+                        torch.save(embedding.cpu(), cache_path)
+                        # To load: embedding = torch.load(cache_path)
+                        # (This loads the cached embedding tensor for <model> and <corruption_type>)
+                
+                with torch.no_grad():
+                    fused = biofuse_model(model_embeddings).cpu()
+                fused_batches.append(fused)
+
+            feats = torch.cat(fused_batches).numpy()
+            feats = scaler.transform(feats)
+            probs = classifier.predict_proba(feats)
+
+            evaluator.evaluate(probs, corruption_type=corr, threshold=threshold)
+        except Exception as e:
+            print(f"Error processing corruption {corr}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+    try:
+        evaluator.dump_summary()
+        met = evaluator.output_log['metrics']
+        print(f'\n[MedMNIST‑C] {dataset}: BE={met["be"]:.3f}  rBE={met["rbe"]:.3f}\n')
+    except Exception as e:
+        print(f"Error generating summary: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 # method to compute AUC-ROC for binary or multi-class classification
 def compute_auc_roc(classifier, features, labels, num_classes, dataset=None):
@@ -1314,8 +1479,8 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
                 if val_auc_roc is not None:
                     print(f"Validation AUC-ROC: {val_auc_roc:.4f}")
 
-        test_accuracy, test_auc_roc = None, None
-        if test_embeddings is not None:
+        test_accuracy, test_auc_roc = 0.0, 0.0
+        if test_embeddings is not None: # and False:  # Never execute this block
             test_fused_embeddings = biofuse_model([test_embeddings[model].to(device) for model in models])
             
             # Keep on GPU for neural network classifier
@@ -1346,7 +1511,41 @@ def standalone_eval(models, biofuse_model, train_embeddings, train_labels, val_e
                 print(f"Test Accuracy: {test_accuracy:.4f}")
                 if test_auc_roc is not None:
                     print(f"Test AUC-ROC: {test_auc_roc:.4f}")
+                    
+                # does (global) args have test_noise?
+                if hasattr(args, 'test_noise') and args.test_noise:
+                    clean_probs = classifier.predict_proba(test_fused_embeddings_np)
+                    eval_medmnistc(dataset       = dataset,
+                                   models        = models,
+                                   biofuse_model = biofuse_model.eval(),
+                                   classifier    = classifier,
+                                   scaler        = scaler,
+                                   clean_probs   = clean_probs,
+                                   clean_labels  = test_labels_np,
+                                   root          = args.medmnistc_root)
 
+    # Save the models and scalers if they were trained, only for medmnist datasets
+    if dataset not in ['imagenet', 'imagenet-mini']:
+        model_str = '_'.join(sorted(models))
+        if not os.path.exists('trained_models'):
+            os.makedirs('trained_models')
+            
+        # Only save the trained model and the scalers
+        if classifier_path is None:
+            classifier_path = f'trained_models/{dataset}_{model_str}_classifier.pkl'
+            scaler_path = f'trained_models/{dataset}_{model_str}_scaler.pkl'
+        
+        with open(classifier_path, 'wb') as f:
+            pickle.dump(val_classifier, f)
+        with open(scaler_path, 'wb') as f:
+            pickle.dump(val_scaler, f)
+            
+        # To load the model later, use:
+        # with open(classifier_path, 'rb') as f:
+        #     val_classifier = pickle.load(f)
+        # with open(scaler_path, 'rb') as f:
+        #     val_scaler = pickle.load(f)
+            
     # Print total XGBoost training and inference time
     # print(f"Total XGBoost training time: {xgb_train_time:.2f} seconds")
     # print(f"Total XGBoost validation inference time: {xgb_val_inf_time:.2f} seconds")
@@ -1422,7 +1621,12 @@ def extract_all_embeddings(model_names, dataloaders, dataset, img_size, nocache)
             start_time = time.time()
             for images, batch_labels in tqdm(dataloader, desc=f"Extracting embeddings for {model_name} ({split})"):
                 if not images: continue
+                # print images.shape
+                #print(f"Processing batch of images with shape: {len(images)}")
+                #print(f"Before preprocessing, images type: {type(images[0])}")  # This is PIL.Image
                 processed_images = preprocessor.preprocess(images)[0]
+                #print type
+                #print(f"Processed images type: {type(processed_images)}")
                 with torch.no_grad():
                     embeddings = extractor(processed_images)
                 model_embeddings.append(embeddings)
@@ -1492,7 +1696,7 @@ def weighted_mean_with_penalty(val_acc, val_auc):
     
     return penalized_score
 
-def get_configurations(model_names, file_path, single):
+def get_configurations(dataset, model_names, file_path, single):
     # if single, there is only a single configuration with all models
     if single:
         return [tuple(model_names)]
@@ -1521,26 +1725,47 @@ def get_configurations(model_names, file_path, single):
 
         # Print the new configurations size 
         print(f"Number of configurations after removing existing results: {len(configurations)}")
+        # # print configurations 1 per line in file configs.txt
+        # with open('configs.txt', 'w') as f:
+        #     for config in configurations:
+        #         f.write(','.join(config) + '\n')
+        # print(f"Configurations saved to configs.txt")
         
-    # Check the .current-run directory for on-going runs
-    current_run_dir = '.current-run'
-    if os.path.isdir(current_run_dir):
-        # Current runs will be <dataset>_<timestamp>.txt with model combination as content (comma-separated)
-        runs = [f for f in os.listdir(current_run_dir) if f.endswith('.txt')]
-        for run in runs:
-            with open(os.path.join(current_run_dir, run), 'r') as f:
-                models = f.read().strip().split(',')
-                if tuple(models) in configurations:
-                    configurations.remove(tuple(models))
-                    
+    #sys.exit(0)  # Exit after skipping in-progress runs                
     return configurations
+
+def is_config_running(dataset, config):
+    """
+    Check if a configuration is currently running by looking for its entry in the .current-run directory.
+    
+    Args:
+        dataset (str): The name of the dataset.
+        config (tuple): The configuration tuple containing model names.
+        
+    Returns:
+        bool: True if the configuration is running, False otherwise.
+    """
+    current_run_dir = '.current-run'
+    if not os.path.isdir(current_run_dir):
+        return False
+    
+    # Create a unique identifier for the configuration
+    config_str = ','.join(config)
+    
+    # Check if any file in the current run directory contains this configuration
+    for run_file in os.listdir(current_run_dir):
+        if run_file.startswith(f"{dataset}_") and run_file.endswith('.txt'):
+            with open(os.path.join(current_run_dir, run_file), 'r') as f:
+                if f.read().strip() == config_str:
+                    return True
+    return False
         
 # Training the model with validation-informed adjustment
 def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fusion_methods, single=False, nocache=False, data_root=None, test_classifier='xgb', ood_test_set=None, ood_data_root=None, params=None, batch_size=32):
     set_seed(42)
 
     file_path = f"results_{dataset}_{img_size}.csv"
-    configurations = get_configurations(model_names, file_path, single)
+    configurations = get_configurations(dataset, model_names, file_path, single)
     #print(configurations)
 
     train_dataloader, val_dataloader, test_dataloader, num_classes = load_data(dataset, img_size, data_root=data_root)
@@ -1567,7 +1792,8 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     best_test_auc_roc = 0
     best_harmonic_mean = 0
 
-
+    # shuffle the configurations
+    random.shuffle(configurations)
 
     # First pass: Evaluate configurations with a single epoch
     print("\nFirst pass: Evaluating model combinations")
@@ -1575,6 +1801,23 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     total_xgb_val_inf_time = 0  # Track total validation inference time
     for models in configurations:
         for fusion_method in fusion_methods:
+            # Skip if this configuration is already running
+            if is_config_running(dataset, models):
+                print(f"Skipping configuration {models} as it is already running.")
+                continue
+
+            # The configurations have updated, see if this config is in the file_path
+            if os.path.isfile(file_path):
+                with open(file_path, mode='r') as file:
+                    reader = csv.reader(file)
+                    next(reader)
+                    for row in reader:
+                        # Extract the models and fusion method
+                        existing_models = row[2].split(',')
+                        if tuple(existing_models) == models and row[3] == fusion_method:
+                            print(f"Skipping configuration {models} with fusion method {fusion_method} as it already exists in results.")
+                            continue
+            
             print(f"\nEvaluating configuration: Models: {models}, Fusion method: {fusion_method}")
             
             # Write to .current-run directory
@@ -1583,7 +1826,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             run_file_path = os.path.join(current_run_dir, f"{dataset}_{int(time.time())}.txt")
             with open(run_file_path, 'w') as f:
                 f.write(','.join(models))
-            #print(f"Current run written to: {run_file_path}")
+            print(f"Current run written to: {run_file_path}")
 
             # Initialize the BioFuse model
             biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=0)
@@ -1641,12 +1884,18 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             #     best_config = (models, 0, fusion_method)
             #     best_val_auc_roc = val_auc_roc                
 
-    # Print summary of XGBoost times across all combinations
+    # Print summary of XGBoost times across all configurations
     print("\n----- XGBoost Timing Summary -----")
     print(f"Total XGBoost training time (xgb_eval_time): {total_xgb_eval_time:.2f} seconds")
     print(f"Total XGBoost validation inference time (xgb_eval_time_inf): {total_xgb_val_inf_time:.2f} seconds")
-    print(f"Average XGBoost training time per combination: {total_xgb_eval_time / (len(configurations) * len(fusion_methods)):.2f} seconds")
-    print(f"Average XGBoost validation inference time per combination: {total_xgb_val_inf_time / (len(configurations) * len(fusion_methods)):.2f} seconds")
+    
+    # Add a check to prevent division by zero
+    total_combinations = len(configurations) * len(fusion_methods)
+    if total_combinations > 0:
+        print(f"Average XGBoost training time per combination: {total_xgb_eval_time / total_combinations:.2f} seconds")
+        print(f"Average XGBoost validation inference time per combination: {total_xgb_val_inf_time / total_combinations:.2f} seconds")
+    else:
+        print("No combinations were evaluated")
     print("----------------------------------")
 
     # print(f"\nBest configuration from first pass: Models: {best_config[0]}, Fusion method: {best_config[2]}")
@@ -1662,9 +1911,22 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             print(f"\nEvaluating on OOD test set: {ood_test_set}")
             ood_root = ood_data_root if ood_data_root else data_root
             _, _, ood_dataloader, ood_num_classes = load_data(ood_test_set, img_size, data_root=ood_root)
-            # print size of ood_dataloader
+            
+            # Print size of ood_dataloader
             print(f"Number of OOD test samples: {len(ood_dataloader.dataset)}")
-            ood_embeddings_cache, ood_labels = extract_and_cache_embeddings(ood_dataloader, model_names, ood_test_set, img_size, 'test', nocache=True)
+            
+            # Use extract_all_embeddings() instead of extract_and_cache_embeddings()
+            # Create a dataloader dict with only test split
+            ood_dataloaders = {'train': None, 'val': None, 'test': ood_dataloader}
+            
+            # Extract embeddings for OOD test set
+            _, _, _, _, ood_embeddings_cache, ood_labels = extract_all_embeddings(
+                model_names, 
+                ood_dataloaders, 
+                ood_test_set, 
+                img_size, 
+                nocache=True
+            )
             
             # Get the best model from the first pass
             # For now, just use the last configuration
@@ -1674,17 +1936,19 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             biofuse_model = BioFuseModel(best_models, fusion_method=best_fusion_method, projection_dim=0)
             biofuse_model = biofuse_model.to("cuda")
             
-            _, _, ood_test_acc, ood_test_auc, _, _ = standalone_eval(best_models,
-                                                                biofuse_model,
-                                                                train_embeddings_cache,
-                                                                train_labels,
-                                                                None,
-                                                                None,
-                                                                ood_embeddings_cache,
-                                                                ood_labels,
-                                                                ood_num_classes,
-                                                                ood_test_set,
-                                                                test_classifier_fn=get_classifier_fn(test_classifier))
+            _, _, ood_test_acc, ood_test_auc, _, _ = standalone_eval(
+                best_models,
+                biofuse_model,
+                train_embeddings_cache,
+                train_labels,
+                None,
+                None,
+                ood_embeddings_cache,
+                ood_labels,
+                ood_num_classes,
+                ood_test_set,
+                test_classifier_fn=get_classifier_fn(test_classifier)
+            )
             
             print(f"OOD Test Accuracy: {ood_test_acc:.4f}")
             print(f"OOD Test AUC-ROC: {ood_test_auc:.4f}")
@@ -1948,7 +2212,11 @@ def main():
     parser.add_argument('--ood_test_set', type=str, help='Out-of-distribution test set')
     parser.add_argument('--ood_data_root', type=str, help='Root directory for OOD dataset storage')
     parser.add_argument('--params_json', type=str, help='Path to a JSON file with parameters')
+    parser.add_argument('--test-noise', action='store_true', help='Evaluate robustness on MedMNIST-C corruptions')
+    parser.add_argument('--medmnistc-root', type=str, default='/data/medmnist-c', help='Root directory containing <dataset>/<corruption>.npz files')
+    global args # make args global so it can be accessed in standalone_eval
     args = parser.parse_args()
+    
 
     if args.params_json:
         with open(args.params_json, 'r') as f:

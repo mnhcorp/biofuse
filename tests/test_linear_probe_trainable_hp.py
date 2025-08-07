@@ -842,7 +842,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
             print(f"\nEvaluating configuration: Models: {models}, Fusion method: {fusion_method}")
 
             # Initialize the BioFuse model
-            biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=0)
+            biofuse_model = BioFuseModel(models, fusion_method=fusion_method, projection_dim=projection_dims[0])
             biofuse_model = biofuse_model.to("cuda")
 
             # Get the train embeddings
@@ -870,7 +870,7 @@ def train_model(dataset, model_names, num_epochs, img_size, projection_dims, fus
     print(f"Best Validation AUC-ROC: {best_val_auc_roc:.4f}")
 
     # Compute test accuracy for the best configuration
-    best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=0)
+    best_biofuse_model = BioFuseModel(best_config[0], fusion_method=best_config[2], projection_dim=projection_dims[0])
     best_biofuse_model = best_biofuse_model.to("cuda")
 
     # Use wandb for hyperparameter tuning

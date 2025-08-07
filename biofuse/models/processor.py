@@ -51,7 +51,7 @@ class ModelPreprocessor:
                     preprocessed_image = image.unsqueeze(0).to("cuda")
                 else:
                     preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
-            elif self.model_name in ["PubMedCLIP", "rad-dino", "Hibou-B", "CLIP"]:               
+            elif self.model_name in ["PubMedCLIP", "rad-dino", "Hibou-B", "CLIP"]:
                 if isinstance(image, torch.Tensor):
                     preprocessed_image = {"pixel_values": image.unsqueeze(0).to("cuda")}
                 else:
@@ -78,6 +78,47 @@ class ModelPreprocessor:
             preprocessed_image = image
         
         return preprocessed_image
+    
+    def preprocess_tensor(self, tensor_batch):
+        """Process tensor batch directly without PIL conversion"""
+        if self.model_name in ["BioMedCLIP", "CONCH", "UNI", "UNI2"]:
+            # These expect normalized tensors in [-1, 1] or [0, 1]
+            if tensor_batch.max() > 1.0:
+                tensor_batch = tensor_batch / 255.0
+            
+            # Ensure 3 channels for RGB models
+            if tensor_batch.shape[1] == 1:  # Grayscale to RGB
+                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
+                
+            return tensor_batch.to("cuda")
+        
+        elif self.model_name == "Prov-GigaPath":
+            if tensor_batch.max() > 1.0:
+                tensor_batch = tensor_batch / 255.0
+            if tensor_batch.shape[1] == 1:
+                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
+            return tensor_batch.to("cuda")
+            
+        elif self.model_name in ["PubMedCLIP", "rad-dino", "Hibou-B", "CLIP"]:
+            if tensor_batch.max() > 1.0:
+                tensor_batch = tensor_batch / 255.0
+            if tensor_batch.shape[1] == 1:
+                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
+            return {"pixel_values": tensor_batch.to("cuda")}
+            
+        elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
+            if tensor_batch.max() > 1.0:
+                tensor_batch = tensor_batch / 255.0
+            if tensor_batch.shape[1] == 1:
+                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
+                
+            if self.model_name == "CheXagent":
+                return {"pixel_values": tensor_batch.to("cuda", dtype=torch.float16)}
+            else:
+                return {"pixel_values": tensor_batch.to("cuda")}
+        
+        return tensor_batch.to("cuda")
+
 
 class MultiModelPreprocessor:
     def __init__(self, model_names):
@@ -106,3 +147,15 @@ class MultiModelPreprocessor:
             preprocessed_batches.append(batch)
             
         return preprocessed_batches
+    
+    def preprocess_tensor_batch(self, tensor_batch):
+        """Process tensor batch for all models"""
+        preprocessed_batches = []
+        for preprocessor in self.preprocessors:
+            processed = preprocessor.preprocess_tensor(tensor_batch)
+            preprocessed_batches.append(processed)
+        return preprocessed_batches
+
+    def preprocess_tensor(self, tensor_batch):
+        """Process tensor batch (assuming single model in this preprocessor)"""
+        return self.preprocessors[0].preprocess_tensor(tensor_batch)

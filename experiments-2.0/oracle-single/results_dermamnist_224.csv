@@ -1,0 +1,10 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC,XGBoost Train Time,XGBoost Val Inference Time
+dermamnist,224,BioMedCLIP,concat,0,1,0.7996,0.9429,0.7995,0.9481,4.63,0.10
+dermamnist,224,PubMedCLIP,concat,0,1,0.8106,0.9422,0.7915,0.9383,4.56,0.07
+dermamnist,224,CONCH,concat,0,1,0.7956,0.9399,0.7855,0.9447,4.61,0.07
+dermamnist,224,rad-dino,concat,0,1,0.7507,0.9069,0.7516,0.9124,5.65,0.08
+dermamnist,224,UNI,concat,0,1,0.8245,0.9558,0.8214,0.9519,6.46,0.09
+dermamnist,224,Prov-GigaPath,concat,0,1,0.8325,0.9558,0.8209,0.9559,8.23,0.10
+dermamnist,224,Hibou-B,concat,0,1,0.8225,0.9588,0.8239,0.9593,5.28,0.08
+dermamnist,224,CheXagent,concat,0,1,0.8674,0.9690,0.8364,0.9601,7.77,0.10
+dermamnist,224,UNI2,concat,0,1,0.8285,0.9551,0.8155,0.9490,8.21,0.10

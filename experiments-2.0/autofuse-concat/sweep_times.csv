@@ -1,0 +1,13 @@
+sweep_name,total_time_seconds
+breastmnist,446.41
+bloodmnist,7322.63
+pneumoniamnist,1016.42
+dermamnist,5874.42
+organcmnist,14499.64
+retinamnist,1894.0
+organsmnist,12513.01
+pathmnist,41134.15
+octmnist,42990.72
+organamnist,21222.28
+tissuemnist,105523.04
+chestmnist,146870.49

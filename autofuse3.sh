@@ -10,7 +10,7 @@ epochs=1
 # replace the code with model names from 'models' variable
 models=$(echo $models | sed 's/BC/BioMedCLIP/g' | sed 's/PC/PubMedCLIP/g' | sed 's/CO/CONCH/g' | sed 's/RD/rad-dino/g' | sed 's/UN/UNI/g' | sed 's/UN2/UNI2/g' |sed 's/PG/Prov-GigaPath/g' | sed 's/HB/Hibou-B/g' | sed 's/CA/CheXagent/g')
 
-datasets=("breastmnist") # "octmnist" "pathmnist" "pneumoniamnist" "retinamnist" "organamnist" "organsmnist" "organcmnist" "bloodmnist" "tissuemnist" "chestmnist")
+datasets=($2)
 
 for dataset in ${datasets[@]}; do
     echo "python tests/test_linear_probe_trainable2.py --dataset $dataset --img_size $size --models $models --fusion_methods $fusion_methods --num_epochs=$epochs"

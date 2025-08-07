@@ -94,7 +94,8 @@ class PreTrainedEmbedding(nn.Module):
                 del model_output
             elif self.model_name in ["Prov-GigaPath", "UNI", "UNI2"]:
                 model_output = self.model(input_data)
-                outputs = model_output.squeeze().clone()
+                #outputs = model_output.squeeze().clone()
+                outputs = model_output.clone()
                 del model_output
             elif self.model_name in ["PubMedCLIP", "CLIP"]:
                 outputs = self.model.get_image_features(**input_data)
@@ -109,6 +110,10 @@ class PreTrainedEmbedding(nn.Module):
                 del model_output
             else:
                 outputs = self.model(input_data).last_hidden_state[:, 0, :]
+
+        # New lines
+        if outputs.dim() == 1:
+                outputs = outputs.unsqueeze(0)
         
         torch.cuda.empty_cache()
         return outputs

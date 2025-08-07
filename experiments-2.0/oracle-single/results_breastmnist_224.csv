@@ -1,0 +1,10 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC,XGBoost Train Time,XGBoost Val Inference Time
+breastmnist,224,BioMedCLIP,concat,0,1,0.8846,0.9148,0.8846,0.8956,1.02,0.05
+breastmnist,224,PubMedCLIP,concat,0,1,0.8974,0.9215,0.8333,0.8832,0.38,0.01
+breastmnist,224,CONCH,concat,0,1,0.9359,0.9424,0.8462,0.9114,0.40,0.02
+breastmnist,224,rad-dino,concat,0,1,0.8846,0.9231,0.8077,0.9033,0.48,0.01
+breastmnist,224,UNI,concat,0,1,0.9103,0.9883,0.8654,0.8680,0.53,0.01
+breastmnist,224,Prov-GigaPath,concat,0,1,0.8974,0.9432,0.8782,0.9453,0.69,0.02
+breastmnist,224,Hibou-B,concat,0,1,0.8846,0.9323,0.8526,0.9286,0.47,0.01
+breastmnist,224,CheXagent,concat,0,1,0.8974,0.9649,0.8526,0.8960,0.65,0.02
+breastmnist,224,UNI2,concat,0,1,0.8974,0.9616,0.8397,0.8887,0.68,0.02

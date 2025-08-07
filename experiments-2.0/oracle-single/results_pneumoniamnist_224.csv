@@ -1,0 +1,10 @@
+Dataset,Image Size,Models,Fusion Method,Projection Dim,Epochs,Val Accuracy,Val AUC-ROC,Test Accuracy,Test AUC-ROC,XGBoost Train Time,XGBoost Val Inference Time
+pneumoniamnist,224,BioMedCLIP,concat,0,1,0.9752,0.9959,0.9038,0.9832,1.07,0.05
+pneumoniamnist,224,PubMedCLIP,concat,0,1,0.9618,0.9909,0.8638,0.9801,0.92,0.02
+pneumoniamnist,224,CONCH,concat,0,1,0.9447,0.9883,0.8429,0.9627,0.97,0.02
+pneumoniamnist,224,rad-dino,concat,0,1,0.9790,0.9954,0.9647,0.9983,1.20,0.02
+pneumoniamnist,224,UNI,concat,0,1,0.9618,0.9922,0.8862,0.9849,1.52,0.03
+pneumoniamnist,224,Prov-GigaPath,concat,0,1,0.9542,0.9919,0.9006,0.9828,2.20,0.04
+pneumoniamnist,224,Hibou-B,concat,0,1,0.9676,0.9946,0.8606,0.9722,1.21,0.03
+pneumoniamnist,224,CheXagent,concat,0,1,0.9905,0.9999,0.9359,0.9915,1.86,0.04
+pneumoniamnist,224,UNI2,concat,0,1,0.9561,0.9927,0.8574,0.9725,2.12,0.04
