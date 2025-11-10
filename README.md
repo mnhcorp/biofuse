@@ -20,7 +20,7 @@ BioFuse enables combining embeddings from multiple pre-trained foundation models
 
 ### Installation
 
-\`\`\`bash
+```bash
 # Clone repository
 git clone https://github.com/mnhcorp/biofuse.git
 cd biofuse
@@ -30,14 +30,14 @@ pip install -e .
 
 # Or install with dev dependencies
 pip install -e ".[dev]"
-\`\`\`
+```
 
 ### Basic Usage
 
 **Option 1: Configuration File (Recommended)**
 
 Create `experiment.yaml`:
-\`\`\`yaml
+```yaml
 name: pathmnist_experiment
 data:
   dataset: pathmnist
@@ -47,22 +47,22 @@ model:
   fusion_method: concat
 classifier:
   type: xgboost
-\`\`\`
+```
 
 Run:
-\`\`\`bash
+```bash
 biofuse train --config experiment.yaml
-\`\`\`
+```
 
 **Option 2: CLI Arguments**
 
-\`\`\`bash
+```bash
 biofuse train --dataset pathmnist --models BioMedCLIP,CONCH --classifier xgboost
-\`\`\`
+```
 
 **Option 3: Python API**
 
-\`\`\`python
+```python
 from biofuse import BioFuse, load_medmnist, get_classifier
 
 # Load data
@@ -79,7 +79,7 @@ train_emb, train_labels, _, _, _ = biofuse.generate_embeddings(
 # Train & evaluate
 classifier = get_classifier('xgboost')
 classifier.fit(train_emb, train_labels)
-\`\`\`
+```
 
 ## 📚 Supported Models & Datasets
 
@@ -95,7 +95,7 @@ BioMedCLIP, CONCH, UNI/UNI2, rad-dino, Prov-GigaPath, PubMedCLIP, Hibou-B, CheXa
 
 ## 🎮 CLI Commands
 
-\`\`\`bash
+```bash
 # Train
 biofuse train --config experiment.yaml
 biofuse train -d pathmnist -m BioMedCLIP,CONCH
@@ -106,7 +106,7 @@ biofuse cache clear --dataset pathmnist
 
 # System info
 biofuse info
-\`\`\`
+```
 
 ## 📖 Documentation
 
@@ -123,18 +123,18 @@ See full documentation:
 ## 🔄 Migration from v0.1
 
 Old (v0.1):
-\`\`\`bash
+```bash
 python tests/test_linear_probe_trainable2.py --dataset pathmnist --models BC,CO
-\`\`\`
+```
 
 New (v2.0):
-\`\`\`bash
+```bash
 biofuse train --dataset pathmnist --models BioMedCLIP,CONCH
-\`\`\`
+```
 
 ## 🏗️ Architecture
 
-\`\`\`
+```
 biofuse/
 ├── core/           # Cache, utilities
 ├── models/         # Embedding extractors, fusion
@@ -144,7 +144,7 @@ biofuse/
 ├── config/         # Configuration management
 ├── cli/            # Command-line interface
 └── utils/          # Logging, paths, reproducibility
-\`\`\`
+```
 
 ## 📧 Contact
 
