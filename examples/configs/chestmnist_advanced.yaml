@@ -1,0 +1,26 @@
+# Advanced ChestMNIST experiment with multiple models
+name: chestmnist_advanced
+data:
+  dataset: chestmnist
+  img_size: 224
+  batch_size: 64
+  num_workers: 8
+model:
+  models:
+    - BioMedCLIP
+    - rad-dino
+    - CheXagent
+  fusion_method: concat
+  projection_dim: 512
+classifier:
+  type: catboost
+  iterations: 1000
+  learning_rate: 0.1
+  depth: 6
+cache:
+  use_cache: true
+  cache_version: v1
+seed: 42
+output_dir: ./results/chestmnist_advanced
+test_split: true
+cross_validation: false

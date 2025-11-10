@@ -1,0 +1,19 @@
+# Basic PathMNIST experiment with BioMedCLIP and CONCH
+name: pathmnist_basic
+data:
+  dataset: pathmnist
+  img_size: 224
+  batch_size: 32
+model:
+  models:
+    - BioMedCLIP
+    - CONCH
+  fusion_method: concat
+  projection_dim: 0
+classifier:
+  type: xgboost
+  n_estimators: 250
+  learning_rate: 0.1
+  max_depth: 6
+seed: 42
+output_dir: ./results/pathmnist_basic

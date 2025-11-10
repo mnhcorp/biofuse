@@ -1,75 +1,156 @@
-# BioFuse: An Embedding Fusion Framework for Biomedical Foundation Models
+# BioFuse v2.0 - Multi-Modal Fusion Framework for Biomedical Foundation Models
 
-BioFuse is a multi-modal fusion framework designed specifically for biomedical images. It enables the combination of embeddings from multiple foundation models to improve performance on downstream tasks.
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.2.0-orange.svg)](setup.py)
 
-## Overview
+BioFuse enables combining embeddings from multiple pre-trained foundation models to improve performance on biomedical imaging tasks. Version 2.0 is a complete refactoring into a production-ready framework with modern CLI, configuration management, and modular architecture.
 
-BioFuse allows researchers and practitioners to:
+## ✨ What's New in v2.0
 
-1. Extract embeddings from multiple pre-trained foundation models
-2. Fuse these embeddings using various fusion methods
-3. Apply the fused embeddings to downstream tasks like classification
-4. Evaluate performance across different model combinations
+- **🎯 Modern CLI**: Replace monolithic scripts with clean commands (`biofuse train`, `biofuse cache`, etc.)
+- **⚙️ Configuration System**: YAML/JSON-based experiment configs with validation
+- **🏗️ Modular Architecture**: Clean separation into core, data, classifiers, evaluation, and utils
+- **📦 Proper Packaging**: Install via pip with console scripts
+- **🚀 Smart Caching**: Configurable embedding cache with versioning
+- **🧪 Unified Classifiers**: Factory pattern for LogisticRegression, XGBoost, CatBoost, Neural Nets
+- **📊 Comprehensive Evaluation**: Built-in metrics, cross-validation, robustness testing
 
-The framework is particularly effective for biomedical imaging tasks where different foundation models may capture complementary aspects of the data.
+## 🚀 Quick Start
 
-## Key Features
+### Installation
 
-- **Fusion Methods**: Officially supports concatenation fusion, with experimental support for other methods
-- **Projection Layers**: Optional learnable projection layers to transform embeddings before fusion
-- **Caching System**: Efficient embedding caching to speed up experiments
-- **Comprehensive Evaluation**: Tools for evaluating model performance with metrics like accuracy and AUC-ROC
-- **Support for Various Datasets**: Works with MedMNIST datasets and custom datasets
+\`\`\`bash
+# Clone repository
+git clone https://github.com/mnhcorp/biofuse.git
+cd biofuse
 
-### Evaluation
+# Install in development mode
+pip install -e .
 
-The repository includes evaluation scripts in the `tests/` directory:
+# Or install with dev dependencies
+pip install -e ".[dev]"
+\`\`\`
 
-- `test_linear_probe_trainable2.py`: The main evaluation script that supports multiple classifier options and datasets
+### Basic Usage
 
-## Usage
+**Option 1: Configuration File (Recommended)**
 
-```bash
-python tests/test_linear_probe_trainable2.py --dataset chestmnist --img_size 224 --models BioMedCLIP,CONCH --fusion_methods concat --projections 512
-```
+Create `experiment.yaml`:
+\`\`\`yaml
+name: pathmnist_experiment
+data:
+  dataset: pathmnist
+  img_size: 224
+model:
+  models: [BioMedCLIP, CONCH]
+  fusion_method: concat
+classifier:
+  type: xgboost
+\`\`\`
 
-## Supported Models
+Run:
+\`\`\`bash
+biofuse train --config experiment.yaml
+\`\`\`
 
-BioFuse supports a variety of foundation models, including:
+**Option 2: CLI Arguments**
 
-- BioMedCLIP (512-dim)
-- BioMistral (4096-dim)
-- CheXagent (1408-dim)
-- CONCH (512-dim)
-- LLama-3-Aloe (4096-dim)
-- Prov-GigaPath (1536-dim)
-- PubMedCLIP (512-dim)
-- rad-dino (768-dim)
-- UNI (1024-dim)
-- UNI2 (1536-dim)
-- Hibou-B (768-dim)
-- CLIP (512-dim)
+\`\`\`bash
+biofuse train --dataset pathmnist --models BioMedCLIP,CONCH --classifier xgboost
+\`\`\`
 
-## Pre-computed Embeddings
+**Option 3: Python API**
 
-To accelerate experimentation, we provide pre-computed embeddings for various datasets:
+\`\`\`python
+from biofuse import BioFuse, load_medmnist, get_classifier
 
-- **MedMNIST Embeddings**: [https://doi.org/10.5281/zenodo.13952293](https://doi.org/10.5281/zenodo.13952293)
-- **ImageNet-1K Embeddings**: [https://doi.org/10.5281/zenodo.14930584](https://doi.org/10.5281/zenodo.14930584)
+# Load data
+train_data, num_classes = load_medmnist('pathmnist', split='train')
 
-These can be downloaded and placed in the `/data/biofuse-embedding-cache` directory to avoid recomputing embeddings.
+# Generate embeddings
+biofuse = BioFuse(models=['BioMedCLIP', 'CONCH'])
+train_emb, train_labels, _, _, _ = biofuse.generate_embeddings(
+    train_data=None,
+    dataset_type='medmnist',
+    dataset_name='pathmnist'
+)
 
-## Supported Datasets
+# Train & evaluate
+classifier = get_classifier('xgboost')
+classifier.fit(train_emb, train_labels)
+\`\`\`
 
-The framework has been tested on various biomedical datasets:
+## 📚 Supported Models & Datasets
 
-- MedMNIST datasets (PathMNIST, DermaMNIST, BreastMNIST, ChestMNIST, etc.)
-- ImageNet-1K
+### Models (12+)
+BioMedCLIP, CONCH, UNI/UNI2, rad-dino, Prov-GigaPath, PubMedCLIP, Hibou-B, CheXagent, BioMistral, LLama-3-Aloe, CLIP
 
-## Installation
+### Datasets  
+- **MedMNIST**: All 12 variants (PathMNIST, ChestMNIST, etc.)
+- **ImageNet-1K**, **BUSI**, **Custom directories**
 
-TBD.
+### Classifiers
+`logistic`, `xgboost`, `catboost`, `nn_mlp`, `nn_cnn`, `nn_resnet`
 
-## High-level API
+## 🎮 CLI Commands
 
-TBD.
+\`\`\`bash
+# Train
+biofuse train --config experiment.yaml
+biofuse train -d pathmnist -m BioMedCLIP,CONCH
+
+# Cache management  
+biofuse cache list
+biofuse cache clear --dataset pathmnist
+
+# System info
+biofuse info
+\`\`\`
+
+## 📖 Documentation
+
+See full documentation:
+- **Configuration**: See `examples/` for config templates
+- **Python API**: See docstrings in `biofuse/`
+- **Migration Guide**: Upgrade from v0.1 in `MIGRATION.md`
+
+## 📊 Pre-computed Embeddings
+
+- **MedMNIST**: [10.5281/zenodo.13952293](https://doi.org/10.5281/zenodo.13952293)
+- **ImageNet-1K**: [10.5281/zenodo.14930584](https://doi.org/10.5281/zenodo.14930584)
+
+## 🔄 Migration from v0.1
+
+Old (v0.1):
+\`\`\`bash
+python tests/test_linear_probe_trainable2.py --dataset pathmnist --models BC,CO
+\`\`\`
+
+New (v2.0):
+\`\`\`bash
+biofuse train --dataset pathmnist --models BioMedCLIP,CONCH
+\`\`\`
+
+## 🏗️ Architecture
+
+\`\`\`
+biofuse/
+├── core/           # Cache, utilities
+├── models/         # Embedding extractors, fusion
+├── data/           # Dataset loaders
+├── classifiers/    # Unified classifier interface
+├── evaluation/     # Metrics, evaluators
+├── config/         # Configuration management
+├── cli/            # Command-line interface
+└── utils/          # Logging, paths, reproducibility
+\`\`\`
+
+## 📧 Contact
+
+**Mirza Hossain** - mnh3@st-andrews.ac.uk  
+GitHub: [@mnhcorp](https://github.com/mnhcorp/biofuse)
+
+## 📜 License
+
+MIT License - see [LICENSE](LICENSE)
