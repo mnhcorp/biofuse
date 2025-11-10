@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""
+BioFuse CLI entry point script.
+
+This script provides the main command-line interface for BioFuse.
+"""
+
+if __name__ == '__main__':
+    from biofuse.cli import main
+    main()
