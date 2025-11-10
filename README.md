@@ -20,6 +20,18 @@ BioFuse enables combining embeddings from multiple pre-trained foundation models
 
 ### Installation
 
+**Option 1: Install directly from GitHub (Recommended)**
+
+```bash
+# Install latest from main branch
+pip install git+https://github.com/mnhcorp/biofuse.git
+
+# Or install from specific branch
+pip install git+https://github.com/mnhcorp/biofuse.git@claude/v2.0-011CUzcaafUUp1M9VqiHkhj9
+```
+
+**Option 2: Clone and install locally**
+
 ```bash
 # Clone repository
 git clone https://github.com/mnhcorp/biofuse.git
