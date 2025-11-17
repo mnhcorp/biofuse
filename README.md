@@ -44,6 +44,80 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
+### 🔑 HuggingFace Authentication (Required for Gated Models)
+
+Many foundation models (UNI, CONCH, CheXagent, etc.) are **gated** and require HuggingFace authentication.
+
+**Setup your HuggingFace token (choose one method):**
+
+**Method 1: HuggingFace CLI (Recommended)**
+```bash
+# Install HF CLI if not already installed
+pip install huggingface_hub
+
+# Login interactively
+huggingface-cli login
+```
+
+**Method 2: Environment Variable**
+```bash
+# Add to your ~/.bashrc or ~/.zshrc
+export HF_TOKEN="hf_your_token_here"
+
+# Or set for current session
+export HF_TOKEN="hf_your_token_here"
+```
+
+**Method 3: .env File**
+```bash
+# Copy example file
+cp .env.example .env
+
+# Edit .env and add your token
+nano .env
+# Add: HF_TOKEN=hf_your_token_here
+```
+
+**Get your HuggingFace token:**
+1. Go to https://huggingface.co/settings/tokens
+2. Create a new token (read access is sufficient)
+3. Accept model access agreements for gated models you want to use:
+   - [UNI](https://huggingface.co/MahmoodLab/UNI)
+   - [CONCH](https://huggingface.co/MahmoodLab/CONCH)
+   - [CheXagent](https://huggingface.co/StanfordAIMI/CheXagent-8b)
+
+**Token Priority (BioFuse checks in this order):**
+1. `HF_TOKEN` environment variable
+2. `HUGGINGFACE_TOKEN` environment variable
+3. `~/.huggingface/token` (from `huggingface-cli login`)
+4. `.env` file in project root
+
+### ⚙️ Configuration (Optional)
+
+**Cache Directories:**
+
+BioFuse uses two types of caches:
+
+1. **HuggingFace Model Cache** (for downloaded models)
+   - Default: `~/.cache/huggingface` or `/data/hf-hub` (if writable)
+   - Override: Set `HF_HOME` environment variable
+
+2. **BioFuse Embedding Cache** (for pre-computed embeddings)
+   - Default: `/data/biofuse-embedding-cache` or `~/biofuse-cache`
+   - Override: Set `BIOFUSE_CACHE_DIR` environment variable
+
+```bash
+# Example: Custom cache directories
+export HF_HOME="/mnt/storage/hf-models"
+export BIOFUSE_CACHE_DIR="/mnt/storage/biofuse-cache"
+```
+
+**All configuration can be set in `.env` file:**
+```bash
+cp .env.example .env
+# Edit .env with your settings
+```
+
 ### Basic Usage
 
 **Option 1: Configuration File (Recommended)**

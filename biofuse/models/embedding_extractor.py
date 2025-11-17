@@ -29,10 +29,25 @@ class PreTrainedEmbedding(nn.Module):
             param.requires_grad = False
 
     def login_to_hf(self):
-        # set HF_TOKEN environment variable
-        os.environ["HF_TOKEN"] = AUTH_TOKEN
-        os.environ["HF_HOME"] = "/data/hf-hub/"
-        #login()
+        """Authenticate with HuggingFace if token is available."""
+        # Set cache directory
+        os.environ["HF_HOME"] = CACHE_DIR
+
+        # Authenticate if token is available
+        if AUTH_TOKEN:
+            os.environ["HF_TOKEN"] = AUTH_TOKEN
+            try:
+                login(token=AUTH_TOKEN, add_to_git_credential=False)
+            except Exception as e:
+                # Login might fail if already logged in, which is fine
+                pass
+        else:
+            # Try to use cached credentials
+            try:
+                login(add_to_git_credential=False)
+            except Exception:
+                # Some models may not require authentication
+                pass
 
     def _load_model(self):
         model_info = MODEL_MAP.get(self.model_name)

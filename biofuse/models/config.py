@@ -2,12 +2,71 @@
 from torchvision import transforms
 import timm
 import torch
+import os
+from pathlib import Path
+
+def get_hf_token():
+    """
+    Get HuggingFace token from multiple sources in order of priority:
+    1. Environment variable HF_TOKEN
+    2. Environment variable HUGGINGFACE_TOKEN
+    3. ~/.huggingface/token file (default HF CLI location)
+    4. .env file in project root
+
+    Returns:
+        str: HuggingFace token or None if not found
+    """
+    # Try environment variables first
+    token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGINGFACE_TOKEN')
+    if token:
+        return token
+
+    # Try default HuggingFace CLI location
+    hf_token_path = Path.home() / '.huggingface' / 'token'
+    if hf_token_path.exists():
+        try:
+            return hf_token_path.read_text().strip()
+        except Exception:
+            pass
+
+    # Try .env file in project root
+    try:
+        from pathlib import Path
+        env_file = Path(__file__).parent.parent.parent / '.env'
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith('HF_TOKEN=') or line.startswith('HUGGINGFACE_TOKEN='):
+                    return line.split('=', 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+
+    return None
+
+def get_cache_dir():
+    """
+    Get HuggingFace cache directory from environment or use default.
+
+    Returns:
+        str: Cache directory path
+    """
+    # Try environment variable
+    cache_dir = os.environ.get('HF_HOME') or os.environ.get('HUGGINGFACE_HUB_CACHE')
+    if cache_dir:
+        return cache_dir
+
+    # Check if /data exists and is writable (common in clusters)
+    data_dir = Path('/data/hf-hub')
+    if data_dir.parent.exists() and os.access(data_dir.parent, os.W_OK):
+        return str(data_dir)
+
+    # Default to user's home directory
+    return str(Path.home() / '.cache' / 'huggingface')
 
 # HuggingFace authentication token
-AUTH_TOKEN = "hf_"
+AUTH_TOKEN = get_hf_token()
 
-# HuggingFace home directory
-CACHE_DIR = "/data/hf-hub/"
+# HuggingFace cache directory
+CACHE_DIR = get_cache_dir()
 
 MODEL_MAP = {
             "CLIP": {

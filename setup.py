@@ -20,6 +20,9 @@ setup(
         'tqdm>=4.60.0',
         'click>=8.0.0',
         'pyyaml>=5.4.0',
+        'huggingface_hub>=0.20.0',
+        'transformers>=4.30.0',
+        'timm>=0.9.0',
     ],
     extras_require={
         'dev': [
