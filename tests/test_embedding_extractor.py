@@ -41,6 +41,18 @@ class DummyClipModel(nn.Module):
         )
 
 
+class DummyTimmModel(nn.Module):
+    def __init__(self, embedding_dim=1024):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.anchor = nn.Parameter(torch.zeros(1))
+        self.pretrained_cfg = {"input_size": (3, 224, 224)}
+
+    def forward(self, pixel_values):
+        batch_size = pixel_values.shape[0]
+        return torch.ones(batch_size, self.embedding_dim)
+
+
 def test_rad_dino_accepts_raw_tensor_batches_on_cpu():
     with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
          patch("biofuse.models.embedding_extractor.AutoModel.from_pretrained", return_value=DummyVisionModel()), \
@@ -92,3 +104,43 @@ def test_login_is_skipped_without_hf_token():
         instance.login_to_hf()
 
     login_mock.assert_not_called()
+
+
+def test_uni_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint():
+    create_calls = []
+
+    def fake_create_model(model_name, cache_dir=None, **kwargs):
+        create_calls.append((model_name, kwargs, cache_dir))
+        return DummyTimmModel()
+
+    with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
+         patch("biofuse.models.embedding_extractor.timm.create_model", new=fake_create_model), \
+         patch("biofuse.models.embedding_extractor.resolve_data_config", return_value={}), \
+         patch("biofuse.models.embedding_extractor.create_transform", return_value=DummyProcessor()), \
+         patch("biofuse.models.embedding_extractor.CACHE_DIR", "/tmp/biofuse-hf-cache"):
+        extractor = PreTrainedEmbedding("UNI", device="cpu")
+
+    assert create_calls[0][0] == "hf-hub:MahmoodLab/UNI"
+    assert create_calls[0][1]["pretrained"] is True
+    assert create_calls[0][2] == "/tmp/biofuse-hf-cache"
+    assert extractor.processor is not None
+
+
+def test_uni2_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint():
+    create_calls = []
+
+    def fake_create_model(model_name, cache_dir=None, **kwargs):
+        create_calls.append((model_name, kwargs, cache_dir))
+        return DummyTimmModel(embedding_dim=1536)
+
+    with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
+         patch("biofuse.models.embedding_extractor.timm.create_model", new=fake_create_model), \
+         patch("biofuse.models.embedding_extractor.resolve_data_config", return_value={}), \
+         patch("biofuse.models.embedding_extractor.create_transform", return_value=DummyProcessor()), \
+         patch("biofuse.models.embedding_extractor.CACHE_DIR", "/tmp/biofuse-hf-cache"):
+        extractor = PreTrainedEmbedding("UNI2", device="cpu")
+
+    assert create_calls[0][0] == "hf-hub:MahmoodLab/UNI2-h"
+    assert create_calls[0][1]["pretrained"] is True
+    assert create_calls[0][2] == "/tmp/biofuse-hf-cache"
+    assert extractor.processor is not None

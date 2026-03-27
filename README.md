@@ -150,6 +150,8 @@ nano .env
    - [CONCH](https://huggingface.co/MahmoodLab/CONCH)
    - [CheXagent](https://huggingface.co/StanfordAIMI/CheXagent-8b)
 
+After you have accepted access and set `HF_TOKEN`, gated encoders such as `UNI`, `UNI2`, `CONCH`, and `CheXagent` are downloaded automatically into the Hugging Face cache on first use.
+
 **Token Priority (BioFuse checks in this order):**
 1. `HF_TOKEN` environment variable
 2. `HUGGINGFACE_TOKEN` environment variable
@@ -256,6 +258,7 @@ biofuse smoke --preset medmnist --dataset pathmnist --models CLIP
 biofuse train --config experiment.yaml
 biofuse train -d pathmnist -m BioMedCLIP
 biofuse train -d pathmnist -m CLIP --max-train-samples 64 --max-val-samples 32
+biofuse train -d breastmnist -m UNI --device cuda
 
 # Cache management  
 biofuse cache list

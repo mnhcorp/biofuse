@@ -1,4 +1,5 @@
 import os
+import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -6,6 +7,8 @@ from PIL import Image
 import timm
 import torch
 import torch.nn as nn
+from timm.data import resolve_data_config
+from timm.data.transforms_factory import create_transform
 from torchvision.transforms.functional import to_pil_image
 from transformers import (
     AutoImageProcessor,
@@ -92,6 +95,38 @@ def _load_hf_asset(loader, model_id: str, retry_without_safetensors: bool = Fals
             fallback_kwargs.pop("use_safetensors", None)
             return loader(model_id, **fallback_kwargs)
         raise
+
+
+def _build_timm_processor(model, fallback_transform):
+    """Prefer the model's published preprocessing when timm exposes it."""
+    try:
+        data_config = resolve_data_config(model.pretrained_cfg, model=model)
+        return create_transform(**data_config)
+    except Exception:
+        return fallback_transform
+
+
+def _load_timm_hf_model(repo_id: str, fallback_repo_id: Optional[str] = None, **kwargs):
+    """Load a timm model from the HF Hub using the configured cache directory."""
+    repo_ids = [repo_id]
+    if fallback_repo_id and fallback_repo_id not in repo_ids:
+        repo_ids.append(fallback_repo_id)
+
+    last_exc = None
+    for candidate in repo_ids:
+        try:
+            timm_kwargs = dict(kwargs)
+            if "cache_dir" in inspect.signature(timm.create_model).parameters:
+                timm_kwargs["cache_dir"] = CACHE_DIR
+
+            return timm.create_model(f"hf-hub:{candidate}", **timm_kwargs)
+        except (OSError, RuntimeError, ValueError) as exc:
+            last_exc = exc
+
+    if last_exc is not None:
+        raise last_exc
+
+    raise RuntimeError(f"Failed to load timm model from Hugging Face Hub: {repo_id}")
 
 
 def _as_tensor_output(output: Any) -> torch.Tensor:
@@ -221,35 +256,25 @@ class PreTrainedEmbedding(nn.Module):
             self.model = _load_hf_asset(AutoModel.from_pretrained, model_info["model"])
             self.processor = _load_hf_asset(AutoImageProcessor.from_pretrained, model_info["model"])
         elif self.model_name == "UNI":
-            self.model = timm.create_model(
-                model_info["model"],
-                img_size=224,
+            self.model = _load_timm_hf_model(
+                model_info["hf_model"],
+                fallback_repo_id=model_info.get("hf_model_fallback"),
+                pretrained=True,
                 patch_size=16,
                 init_values=1e-5,
                 num_classes=0,
                 dynamic_img_size=True,
             )
-            self.model.load_state_dict(
-                torch.load(
-                    "/data/hf-hub/ckpts/vit_large_patch16_224.dinov2.uni_mass100k/pytorch_model.bin",
-                    map_location="cpu",
-                ),
-                strict=True,
-            )
-            self.processor = model_info["tokenizer"]
+            self.processor = _build_timm_processor(self.model, model_info["tokenizer"])
         elif self.model_name == "UNI2":
-            self.model = timm.create_model(
-                pretrained=False,
-                **model_info["timm_kwargs"],
+            timm_kwargs = dict(model_info["timm_kwargs"])
+            timm_kwargs.pop("model_name", None)
+            self.model = _load_timm_hf_model(
+                model_info["hf_model"],
+                **timm_kwargs,
+                pretrained=True,
             )
-            self.model.load_state_dict(
-                torch.load(
-                    "/data/hf-hub/ckpts/uni2-h/pytorch_model.bin",
-                    map_location="cpu",
-                ),
-                strict=True,
-            )
-            self.processor = model_info["tokenizer"]
+            self.processor = _build_timm_processor(self.model, model_info["tokenizer"])
         elif self.model_name == "Hibou-B":
             self.model = _load_hf_asset(
                 AutoModel.from_pretrained,

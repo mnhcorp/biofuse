@@ -113,6 +113,8 @@ MODEL_MAP = {
             },
             "UNI": {
                 "model": "vit_large_patch16_224",
+                "hf_model": "MahmoodLab/UNI",
+                "hf_model_fallback": "MahmoodLab/uni",
                 "tokenizer": transforms.Compose(
                     [
                         transforms.Resize(224),
@@ -123,6 +125,7 @@ MODEL_MAP = {
             },
             "UNI2": {
                 "model": "uni2-h",
+                "hf_model": "MahmoodLab/UNI2-h",
                 "tokenizer": transforms.Compose(
                     [
                         transforms.Resize(224),
