@@ -1,9 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from biofuse.models.embedding_extractor import PreTrainedEmbedding
-from biofuse.models.processor import MultiModelPreprocessor
-import ipdb
 
 GLOBAL_PROJECTED_DIM = 256  # Default projection dimension
 GLOBAL_NUM_HEADS = 4  # Default number of attention heads

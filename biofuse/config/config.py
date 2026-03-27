@@ -46,6 +46,9 @@ class DataConfig:
     data_root: Optional[str] = None
     download: bool = True
     subset_size: float = 1.0
+    max_train_samples: Optional[int] = None
+    max_val_samples: Optional[int] = None
+    max_test_samples: Optional[int] = None
 
 
 @dataclass

@@ -11,14 +11,25 @@ import random
 from typing import Tuple, Optional, Union, List
 from pathlib import Path
 import numpy as np
-import medmnist
-from medmnist import INFO
 from torchvision import transforms
 from torchvision.datasets import ImageNet
 from torch.utils.data import DataLoader, Subset
 from sklearn.model_selection import train_test_split
 
 from .datasets import BioFuseImageDataset, ImageNetTestDataset
+
+
+def _load_medmnist_backend():
+    """Import medmnist lazily so the package can import without the dataset backend."""
+    try:
+        import medmnist
+        from medmnist import INFO
+    except ImportError as exc:
+        raise ImportError(
+            "MedMNIST support requires the optional `medmnist` package."
+        ) from exc
+
+    return medmnist, INFO
 
 
 def load_medmnist(
@@ -48,23 +59,24 @@ def load_medmnist(
         >>> dataset, num_classes = load_medmnist('pathmnist', split='train')
         >>> print(f"Loaded {len(dataset)} samples with {num_classes} classes")
     """
-    if dataset_name not in INFO:
-        available = ', '.join(INFO.keys())
+    medmnist, info_map = _load_medmnist_backend()
+
+    if dataset_name not in info_map:
+        available = ', '.join(info_map.keys())
         raise ValueError(
             f"Unknown MedMNIST dataset '{dataset_name}'. "
             f"Available: {available}"
         )
 
     # Get dataset info
-    info = INFO[dataset_name]
+    info = info_map[dataset_name]
     num_classes = len(info['label'])
     DataClass = getattr(medmnist, info['python_class'])
 
-    # Standard MedMNIST transform (grayscale)
+    # Resize and convert to tensors here; model-specific normalization happens later.
     transform = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5])
     ])
 
     # Load dataset
@@ -82,14 +94,14 @@ def load_medmnist(
     if hasattr(labels, 'squeeze'):
         labels = labels.squeeze()
 
-    # Create BioFuse dataset
+    # Wrap the raw arrays so the dataloader returns collatable tensors.
     dataset = BioFuseImageDataset(
         images=images,
         labels=labels,
-        transform=None,  # Already transformed
+        transform=transform,
         from_paths=False,
-        target_mode=None,
-        img_size=None
+        target_mode='RGB',
+        img_size=None,
     )
 
     return dataset, num_classes
@@ -122,15 +134,11 @@ def load_imagenet(
         ...     '/data/imagenet', split='val', subset_size=0.1
         ... )
     """
-    # Standard ImageNet preprocessing
+    # Keep tensors in raw image space; model-specific normalization happens later.
     transform = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(img_size),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
     ])
 
     # Load dataset
@@ -229,14 +237,10 @@ def load_busi(
 
     split_images, split_labels = split_map[split]
 
-    # Transform
+    # Keep tensors in raw image space; model-specific normalization happens later.
     transform = transforms.Compose([
-        transforms.CenterCrop(img_size),
+        transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
     ])
 
     # Create dataset
@@ -246,7 +250,7 @@ def load_busi(
         transform=transform,
         from_paths=True,
         target_mode='RGB',
-        img_size=None  # CenterCrop handles sizing
+        img_size=None,
     )
 
     return dataset, 2
@@ -372,10 +376,6 @@ def create_custom_dataset(
     transform = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
     ])
 
     return BioFuseImageDataset(

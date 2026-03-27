@@ -1,161 +1,164 @@
-from transformers import AutoImageProcessor, CLIPProcessor, AutoProcessor, AutoTokenizer
-from open_clip import create_model_from_pretrained, get_tokenizer
-from conch.open_clip_custom import create_model_from_pretrained as create_model_from_pretrained_conch
-from torchvision import transforms
-from biofuse.models.config import MODEL_MAP
+from typing import Any, List, Optional
+
+from PIL import Image
 import torch
+from torchvision.transforms.functional import to_pil_image
+from transformers import AutoImageProcessor, AutoProcessor, AutoTokenizer, CLIPProcessor
+
+from biofuse.models.config import MODEL_MAP
+from biofuse.utils.reproducibility import get_device
+
+
+def _load_open_clip_backend():
+    try:
+        from open_clip import create_model_from_pretrained
+    except ImportError as exc:
+        raise ImportError(
+            "BioMedCLIP preprocessing requires the optional `open-clip-torch` package. "
+            "Install it with `pip install open-clip-torch`."
+        ) from exc
+
+    return create_model_from_pretrained
+
+
+def _load_conch_backend():
+    try:
+        from conch.open_clip_custom import (
+            create_model_from_pretrained as create_model_from_pretrained_conch,
+        )
+    except ImportError as exc:
+        raise ImportError(
+            "CONCH preprocessing requires the optional CONCH package to be installed."
+        ) from exc
+
+    return create_model_from_pretrained_conch
+
+
+def _move_to_device(data: Any, device: torch.device, dtype: Optional[torch.dtype] = None):
+    if isinstance(data, dict):
+        return {
+            key: _move_to_device(
+                value,
+                device,
+                dtype if key == "pixel_values" else None,
+            )
+            for key, value in data.items()
+        }
+
+    if hasattr(data, "to"):
+        if dtype is not None:
+            return data.to(device=device, dtype=dtype)
+        return data.to(device)
+
+    return data
+
 
 class ModelPreprocessor:
-    def __init__(self, model_name, model_info):
+    def __init__(self, model_name, model_info, device: Optional[str] = None):
         self.model_name = model_name
         self.model_info = model_info
+        self.device = get_device(device)
         self.processor = self._setup_preprocessor()
 
     def _setup_preprocessor(self):
         if self.model_name == "BioMedCLIP":
-            _, preprocessor = create_model_from_pretrained(self.model_info["model"])            
-        elif self.model_name == "BioMistral":
-            preprocessor = AutoTokenizer.from_pretrained(self.model_info["model"])
+            create_model_from_pretrained = _load_open_clip_backend()
+            _, preprocessor = create_model_from_pretrained(self.model_info["model"])
         elif self.model_name == "CheXagent":
-            preprocessor = AutoProcessor.from_pretrained(self.model_info["model"], trust_remote_code=True)
+            preprocessor = AutoProcessor.from_pretrained(
+                self.model_info["model"],
+                trust_remote_code=True,
+            )
         elif self.model_name == "CONCH":
-            _, preprocessor = create_model_from_pretrained_conch(self.model_info["model"], self.model_info["tokenizer"])
-        elif self.model_name == "LLama-3-Aloe":
+            create_model_from_pretrained_conch = _load_conch_backend()
+            _, preprocessor = create_model_from_pretrained_conch(
+                self.model_info["model"],
+                self.model_info["tokenizer"],
+            )
+        elif self.model_name in ["BioMistral", "LLama-3-Aloe"]:
             preprocessor = AutoTokenizer.from_pretrained(self.model_info["model"])
         elif self.model_name == "Prov-GigaPath":
             preprocessor = self.model_info["tokenizer"]
-        elif self.model_name == "PubMedCLIP":
-            preprocessor = CLIPProcessor.from_pretrained(self.model_info["model"])
-        elif self.model_name == "CLIP":
+        elif self.model_name in ["PubMedCLIP", "CLIP"]:
             preprocessor = CLIPProcessor.from_pretrained(self.model_info["model"])
         elif self.model_name == "rad-dino":
             preprocessor = AutoImageProcessor.from_pretrained(self.model_info["model"])
         elif self.model_name in ["UNI", "UNI2"]:
             preprocessor = self.model_info["tokenizer"]
         elif self.model_name == "Hibou-B":
-            preprocessor = AutoImageProcessor.from_pretrained(self.model_info["model"], trust_remote_code=True)
+            preprocessor = AutoImageProcessor.from_pretrained(
+                self.model_info["model"],
+                trust_remote_code=True,
+            )
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
-        
+
         return preprocessor
 
-    def preprocess(self, image):       
-        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "PubMedCLIP", "rad-dino", "UNI", "Hibou-B", "CLIP", "UNI2"]:
-            if self.model_name in ["BioMedCLIP", "CONCH", "UNI", "UNI2"]:
-                if isinstance(image, torch.Tensor):
-                    preprocessed_image = image.unsqueeze(0).to("cuda")
-                else:                
-                    preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
-            elif self.model_name == "Prov-GigaPath":
-                if isinstance(image, torch.Tensor):
-                    preprocessed_image = image.unsqueeze(0).to("cuda")
+    def _pixel_dtype(self) -> Optional[torch.dtype]:
+        if self.model_name == "CheXagent" and self.device.type == "cuda":
+            return torch.float16
+        return None
+
+    def _to_pil_images(self, images) -> List[Image.Image]:
+        if isinstance(images, Image.Image):
+            return [images]
+
+        if torch.is_tensor(images):
+            if images.ndim == 3:
+                images = images.unsqueeze(0)
+            return [to_pil_image(image.detach().cpu().clamp(0.0, 1.0)) for image in images]
+
+        if isinstance(images, (list, tuple)):
+            pil_images = []
+            for image in images:
+                if isinstance(image, Image.Image):
+                    pil_images.append(image)
+                elif torch.is_tensor(image):
+                    pil_images.extend(self._to_pil_images(image))
                 else:
-                    preprocessed_image = self.processor(image.convert('RGB')).unsqueeze(0).to("cuda")
-            elif self.model_name in ["PubMedCLIP", "rad-dino", "Hibou-B", "CLIP"]:
-                if isinstance(image, torch.Tensor):
-                    preprocessed_image = {"pixel_values": image.unsqueeze(0).to("cuda")}
-                else:
-                    if self.model_name == "Hibou-B":
-                        image = image.convert('RGB')
-                    preprocessed_image = self.processor(images=image, return_tensors="pt")
-                    if hasattr(preprocessed_image, 'pixel_values'):
-                        preprocessed_image['pixel_values'] = preprocessed_image.pixel_values.to("cuda")
-            else:
-                preprocessed_image = image
-        elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
-            if isinstance(image, torch.Tensor):
-                if self.model_name == "CheXagent":
-                    preprocessed_image = {"pixel_values": image.unsqueeze(0).to("cuda", dtype=torch.float16)}
-                else:
-                    preprocessed_image = {"pixel_values": image.unsqueeze(0).to("cuda")}
-            else:
-                if self.model_name == "CheXagent":
-                    preprocessed_image = self.processor(images=image, return_tensors="pt").to("cuda", dtype=torch.float16)
-                    preprocessed_image['pixel_values'] = preprocessed_image['pixel_values'].squeeze(1).to("cuda", dtype=torch.float16)
-                else:
-                    preprocessed_image = self.processor(image, return_tensors='pt').to("cuda")
-        else:
-            preprocessed_image = image
-        
-        return preprocessed_image
-    
+                    raise TypeError(f"Unsupported input type: {type(image)}")
+            return pil_images
+
+        raise TypeError(f"Unsupported input type: {type(images)}")
+
+    def preprocess(self, image):
+        if isinstance(image, (str, list, tuple)) and self.model_name in ["BioMistral", "LLama-3-Aloe"]:
+            texts = [image] if isinstance(image, str) else list(image)
+            tokenized = self.processor(texts, return_tensors="pt", padding=True, truncation=True)
+            return _move_to_device(tokenized, self.device)
+
+        images = [
+            item.convert("RGB") if item.mode != "RGB" else item
+            for item in self._to_pil_images(image)
+        ]
+
+        if self.model_name in ["BioMedCLIP", "CONCH", "Prov-GigaPath", "UNI", "UNI2"]:
+            batch = torch.stack([self.processor(item) for item in images])
+            return batch.to(self.device)
+
+        processed = self.processor(images=images, return_tensors="pt")
+        if self.model_name == "CheXagent" and "pixel_values" in processed and processed["pixel_values"].ndim == 5:
+            processed["pixel_values"] = processed["pixel_values"].squeeze(1)
+        return _move_to_device(processed, self.device, dtype=self._pixel_dtype())
+
     def preprocess_tensor(self, tensor_batch):
-        """Process tensor batch directly without PIL conversion"""
-        if self.model_name in ["BioMedCLIP", "CONCH", "UNI", "UNI2"]:
-            # These expect normalized tensors in [-1, 1] or [0, 1]
-            if tensor_batch.max() > 1.0:
-                tensor_batch = tensor_batch / 255.0
-            
-            # Ensure 3 channels for RGB models
-            if tensor_batch.shape[1] == 1:  # Grayscale to RGB
-                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
-                
-            return tensor_batch.to("cuda")
-        
-        elif self.model_name == "Prov-GigaPath":
-            if tensor_batch.max() > 1.0:
-                tensor_batch = tensor_batch / 255.0
-            if tensor_batch.shape[1] == 1:
-                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
-            return tensor_batch.to("cuda")
-            
-        elif self.model_name in ["PubMedCLIP", "rad-dino", "Hibou-B", "CLIP"]:
-            if tensor_batch.max() > 1.0:
-                tensor_batch = tensor_batch / 255.0
-            if tensor_batch.shape[1] == 1:
-                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
-            return {"pixel_values": tensor_batch.to("cuda")}
-            
-        elif self.model_name in ["BioMistral", "CheXagent", "LLama-3-Aloe"]:
-            if tensor_batch.max() > 1.0:
-                tensor_batch = tensor_batch / 255.0
-            if tensor_batch.shape[1] == 1:
-                tensor_batch = tensor_batch.repeat(1, 3, 1, 1)
-                
-            if self.model_name == "CheXagent":
-                return {"pixel_values": tensor_batch.to("cuda", dtype=torch.float16)}
-            else:
-                return {"pixel_values": tensor_batch.to("cuda")}
-        
-        return tensor_batch.to("cuda")
+        return self.preprocess(tensor_batch)
 
 
 class MultiModelPreprocessor:
-    def __init__(self, model_names):
+    def __init__(self, model_names, device: Optional[str] = None):
         model_info = MODEL_MAP
-        self.preprocessors = [ModelPreprocessor(name, model_info[name]) for name in model_names]
+        self.preprocessors = [
+            ModelPreprocessor(name, model_info[name], device=device)
+            for name in model_names
+        ]
 
     def preprocess(self, images):
-        if not isinstance(images, list):
-            images = [images]
-        
-        preprocessed_batches = []
-        for preprocessor in self.preprocessors:
-            processed_list = [preprocessor.preprocess(image) for image in images]
-            
-            if isinstance(processed_list[0], torch.Tensor):
-                batch = torch.cat(processed_list, dim=0)
-            elif isinstance(processed_list[0], dict):
-                batch = {}
-                for key in processed_list[0].keys():
-                    batch[key] = torch.cat([d[key] for d in processed_list], dim=0)
-            elif hasattr(processed_list[0], 'pixel_values'):
-                batch = {'pixel_values': torch.cat([d.pixel_values for d in processed_list], dim=0)}
-            else:
-                raise TypeError(f"Unsupported type from ModelPreprocessor: {type(processed_list[0])}")
+        return [preprocessor.preprocess(images) for preprocessor in self.preprocessors]
 
-            preprocessed_batches.append(batch)
-            
-        return preprocessed_batches
-    
     def preprocess_tensor_batch(self, tensor_batch):
-        """Process tensor batch for all models"""
-        preprocessed_batches = []
-        for preprocessor in self.preprocessors:
-            processed = preprocessor.preprocess_tensor(tensor_batch)
-            preprocessed_batches.append(processed)
-        return preprocessed_batches
+        return [preprocessor.preprocess_tensor(tensor_batch) for preprocessor in self.preprocessors]
 
     def preprocess_tensor(self, tensor_batch):
-        """Process tensor batch (assuming single model in this preprocessor)"""
         return self.preprocessors[0].preprocess_tensor(tensor_batch)

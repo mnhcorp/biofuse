@@ -23,6 +23,7 @@ setup(
         'huggingface_hub>=0.20.0',
         'transformers>=4.30.0',
         'timm>=0.9.0',
+        'open-clip-torch>=2.24.0',
     ],
     extras_require={
         'dev': [

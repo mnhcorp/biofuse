@@ -18,30 +18,94 @@ BioFuse enables combining embeddings from multiple pre-trained foundation models
 
 ## 🚀 Quick Start
 
-### Installation
+### New User Path
 
-**Option 1: Install directly from GitHub (Recommended)**
+If you are new to BioFuse, use this order:
 
-```bash
-# Install latest from main branch
-pip install git+https://github.com/mnhcorp/biofuse.git
+1. Run a tiny Docker smoke test
+2. Run a small MedMNIST smoke test
+3. Run a real training job
 
-# Or install from specific branch
-pip install git+https://github.com/mnhcorp/biofuse.git@claude/v2.0-011CUzcaafUUp1M9VqiHkhj9
-```
-
-**Option 2: Clone and install locally**
+**Step 1: Build the image**
 
 ```bash
-# Clone repository
 git clone https://github.com/mnhcorp/biofuse.git
 cd biofuse
+docker build -t biofuse .
+```
 
-# Install in development mode
-pip install -e .
+**Step 2: Run the smallest possible end-to-end check**
 
-# Or install with dev dependencies
+```bash
+docker run --rm --gpus all biofuse
+```
+
+This runs:
+
+```bash
+biofuse smoke --preset custom --device cuda
+```
+
+It uses the repository sample images and verifies that BioFuse can install, launch the CLI, load a model, extract embeddings, train a classifier, and write results.
+
+**Step 3: Run a small MedMNIST smoke test**
+
+```bash
+docker run --rm --gpus all \
+  -v "$PWD/.cache/medmnist:/data/medmnist" \
+  -v "$PWD/results:/workspace/results" \
+  biofuse \
+  biofuse smoke \
+    --preset medmnist \
+    --dataset pathmnist \
+    --models CLIP \
+    --device cuda \
+    --max-train-samples 64 \
+    --max-val-samples 32 \
+    --max-test-samples 32 \
+    --output-dir /workspace/results
+```
+
+This is the recommended first real dataset run:
+- dataset: `PathMNIST`
+- encoder: `CLIP`
+- classifier: `logistic`
+- download behavior: automatic if missing
+- runtime: bounded to a small subset
+
+**Step 4: Run a normal training job**
+
+```bash
+docker run --rm --gpus all \
+  -v "$PWD/.cache/medmnist:/data/medmnist" \
+  -v "$PWD/results:/workspace/results" \
+  biofuse \
+  biofuse train \
+    --dataset pathmnist \
+    --models CLIP \
+    --classifier logistic \
+    --device cuda \
+    --data-root /data/medmnist \
+    --output-dir /workspace/results
+```
+
+### Local Installation
+
+If you do not want Docker, install locally:
+
+```bash
+git clone https://github.com/mnhcorp/biofuse.git
+cd biofuse
 pip install -e ".[dev]"
+```
+
+Then inspect the CLI:
+
+```bash
+biofuse --help
+biofuse smoke --help
+biofuse train --help
+biofuse info
 ```
 
 ### 🔑 HuggingFace Authentication (Required for Gated Models)
@@ -120,51 +184,53 @@ cp .env.example .env
 
 ### Basic Usage
 
-**Option 1: Configuration File (Recommended)**
+**Option 1: Smoke Test Through The CLI**
+
+```bash
+biofuse smoke --preset custom
+biofuse smoke --preset medmnist --dataset pathmnist --models CLIP --max-train-samples 64
+```
+
+**Option 2: Train From CLI Arguments**
+
+```bash
+biofuse train --dataset pathmnist --models CLIP --classifier logistic
+biofuse train --dataset pathmnist --models BioMedCLIP --classifier xgboost
+```
+
+**Option 3: Configuration File**
 
 Create `experiment.yaml`:
+
 ```yaml
 name: pathmnist_experiment
 data:
   dataset: pathmnist
   img_size: 224
 model:
-  models: [BioMedCLIP, CONCH]
+  models: [BioMedCLIP]
   fusion_method: concat
 classifier:
   type: xgboost
 ```
 
 Run:
+
 ```bash
 biofuse train --config experiment.yaml
 ```
 
-**Option 2: CLI Arguments**
-
-```bash
-biofuse train --dataset pathmnist --models BioMedCLIP,CONCH --classifier xgboost
-```
-
-**Option 3: Python API**
+**Option 4: Python API**
 
 ```python
-from biofuse import BioFuse, load_medmnist, get_classifier
+from biofuse import BioFuse
 
-# Load data
-train_data, num_classes = load_medmnist('pathmnist', split='train')
-
-# Generate embeddings
-biofuse = BioFuse(models=['BioMedCLIP', 'CONCH'])
+biofuse = BioFuse(models=['CLIP'], device='cuda')
 train_emb, train_labels, _, _, _ = biofuse.generate_embeddings(
     train_data=None,
     dataset_type='medmnist',
     dataset_name='pathmnist'
 )
-
-# Train & evaluate
-classifier = get_classifier('xgboost')
-classifier.fit(train_emb, train_labels)
 ```
 
 ## 📚 Supported Models & Datasets
@@ -182,9 +248,14 @@ BioMedCLIP, CONCH, UNI/UNI2, rad-dino, Prov-GigaPath, PubMedCLIP, Hibou-B, CheXa
 ## 🎮 CLI Commands
 
 ```bash
+# Smoke tests
+biofuse smoke --preset custom
+biofuse smoke --preset medmnist --dataset pathmnist --models CLIP
+
 # Train
 biofuse train --config experiment.yaml
-biofuse train -d pathmnist -m BioMedCLIP,CONCH
+biofuse train -d pathmnist -m BioMedCLIP
+biofuse train -d pathmnist -m CLIP --max-train-samples 64 --max-val-samples 32
 
 # Cache management  
 biofuse cache list

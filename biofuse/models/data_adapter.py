@@ -1,276 +1,73 @@
-from .image_dataset import BioFuseImageDataset
-import os
-from typing import List, Union, Optional, Tuple
+from typing import List, Tuple, Union
+
 import numpy as np
-import medmnist
-from medmnist import INFO
-from torchvision.datasets import ImageNet
-from torch.utils.data import Dataset
-import glob
-from PIL import Image
-import torch
-from torchvision import transforms
-from sklearn.model_selection import train_test_split
 
-class ImageNetTestDataset(Dataset):
-    """Custom dataset for ImageNet test data with flat directory structure"""
-    def __init__(self, root, transform=None):
-        self.root = root
-        self.transform = transform
-        # Get all JPEG files and sort them alphabetically
-        self.image_paths = sorted(glob.glob(os.path.join(root, '*.JPEG')))
-        
-    def __len__(self):
-        return len(self.image_paths)
-    
-    def __getitem__(self, idx):
-        image_path = self.image_paths[idx]
-        image = Image.open(image_path).convert('RGB')
-        if self.transform:
-            image = self.transform(image)
-        # Return filename (without path) as label for test set
-        return image, os.path.basename(image_path)
+from biofuse.data import (
+    create_custom_dataset,
+    load_busi,
+    load_custom_directory,
+    load_imagenet,
+    load_medmnist,
+)
 
-from torchvision.datasets import ImageNet
-from torchvision import transforms
-from torch.utils.data import DataLoader, Subset
-import random
 
 class DataAdapter:
-    """Adapter class for loading different dataset formats into BioFuseImageDataset"""
-    
-    @classmethod
-    def from_busi(cls, root: str, split: str, img_size: int) -> Tuple[BioFuseImageDataset, int]:
-        """Create dataset from BUSI dataset
-        
-        Args:
-            root: Path to the BUSI dataset directory
-            split: One of 'train', 'val', or 'test'
-            img_size: Size of the images
-            
-        Returns:
-            tuple: (BioFuseImageDataset, num_classes)
-        """
-        benign_paths = [p for p in glob.glob(os.path.join(root, 'benign', '*.png')) if '_mask' not in p]
-        normal_paths = [p for p in glob.glob(os.path.join(root, 'normal', '*.png')) if '_mask' not in p]
-        malignant_paths = [p for p in glob.glob(os.path.join(root, 'malignant', '*.png')) if '_mask' not in p]
-        # print lens
-        print(f'Benign images: {len(benign_paths)}')
-        print(f'Normal images: {len(normal_paths)}')
-        print(f'Malignant images: {len(malignant_paths)}')
-
-        # Combine benign and normal as class 0, malignant as class 1
-        benign_images = benign_paths + normal_paths
-        malignant_images = malignant_paths
-        
-        images = benign_images + malignant_images
-        labels = [0] * len(benign_images) + [1] * len(malignant_images)
-        # what is the distribution of labels?
-        unique, counts = np.unique(labels, return_counts=True)
-        label_distribution = dict(zip(unique, counts))
-        print(f'Label distribution: {label_distribution}')
-
-        # Stratified split into train, val, test
-        train_images, test_images, train_labels, test_labels = train_test_split(
-            images, labels, test_size=0.3, random_state=42, stratify=labels)
-        
-        val_images, test_images, val_labels, test_labels = train_test_split(
-            test_images, test_labels, test_size=0.5, random_state=42, stratify=test_labels)
-
-        if split == 'train':
-            split_images, split_labels = train_images, train_labels
-        elif split == 'val':
-            split_images, split_labels = val_images, val_labels
-        else: # split == 'test'
-            split_images, split_labels = test_images, test_labels
-            # How many images are in the test set?
-            print(f'Test set size: {len(split_images)}')
-            # What is the distribution of labels in the test set?
-            unique, counts = np.unique(split_labels, return_counts=True)
-            label_distribution = dict(zip(unique, counts))
-            print(f'Test set label distribution: {label_distribution}')
-
-            
-        transform = transforms.Compose([
-            #transforms.Resize((img_size, img_size)),
-            transforms.CenterCrop(img_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-
-        dataset = BioFuseImageDataset(
-            images=split_images,
-            labels=split_labels,
-            path=True,
-            rgb=False, # BUSI images are grayscale but we'll convert to RGB
-            resize=False,
-            img_size=img_size,
-            transform=transform
-        )
-        
-        return dataset, 2
-
+    """Backward-compatible adapter over the v2 data loading utilities."""
 
     @classmethod
-    def from_imagenet(cls, root: str, split: str, batch_size: int = 32, num_workers: int = 1, subset_size: float = 1.0) -> Tuple[DataLoader, int]:
-        """Create DataLoader from ImageNet directory structure
-        
-        Args:
-            root: Path to ImageNet directory
-            split: One of 'train', 'val', or 'test'
-            batch_size: Batch size for DataLoader
-            num_workers: Number of workers for DataLoader
-            subset_size: Fraction of the dataset to use (default: 1.0)
-            
-        Returns:
-            tuple: (DataLoader, num_classes)
-        """
-        # Define standard ImageNet transformations
-        transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-        
-        # Load dataset based on split
-        if split == 'test':
-            test_dir = os.path.join(root, 'test')
-            dataset = ImageNetTestDataset(test_dir, transform=transform)
-        else:
-            dataset = ImageNet(root=root, split=split, transform=transform)
-        
-        # Create subset if needed
-        if subset_size < 1.0:
-            total_size = len(dataset)
-            subset_size = int(total_size * subset_size)
-            
-            # Use random seed for reproducibility
-            random.seed(42)
-            indices = random.sample(range(total_size), subset_size)
-            dataset = Subset(dataset, indices)
-        
-        # Create DataLoader
-        loader = DataLoader(
-            dataset,
+    def from_busi(cls, root: str, split: str, img_size: int):
+        return load_busi(root=root, split=split, img_size=img_size)
+
+    @classmethod
+    def from_imagenet(
+        cls,
+        root: str,
+        split: str,
+        batch_size: int = 32,
+        num_workers: int = 1,
+        subset_size: float = 1.0,
+        img_size: int = 224,
+    ):
+        return load_imagenet(
+            root=root,
+            split=split,
             batch_size=batch_size,
-            shuffle=(split == 'train'),  # Shuffle only training data
-            num_workers=num_workers
-        )
-        
-        return loader, 1000  # ImageNet has 1000 classes
-    
-    @classmethod
-    def from_medmnist(cls, dataset_name: str, split: str, img_size: int, root: str = '/data/medmnist') -> Tuple[BioFuseImageDataset, int]:
-        """Create dataset from MedMNIST dataset name
-        
-        Args:
-            dataset_name: Name of the MedMNIST dataset (e.g. 'breastmnist')
-            split: One of 'train', 'val', or 'test'
-            img_size: Size of the images
-            root: Root directory for dataset storage
-            
-        Returns:
-            tuple: (BioFuseImageDataset, num_classes)
-        """
-        # Get dataset information and class
-        info = INFO[dataset_name]
-        num_classes = len(info['label'])
-        DataClass = getattr(medmnist, info['python_class'])
-        
-        # Load raw MedMNIST dataset with transform
-        transform = transforms.Compose([
-            transforms.Resize((img_size, img_size)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5], std=[0.5])
-        ])
-        
-        data = DataClass(split=split, download=True, transform=transform, root=root, size=img_size)
-        
-        # Create BioFuseImageDataset
-        # Extract images and labels from the MedMNIST dataset
-        images = data.imgs
-        labels = data.labels.squeeze() if hasattr(data.labels, 'squeeze') else data.labels
-        
-        # Create BioFuseImageDataset
-        dataset = BioFuseImageDataset(
-            images=images,
-            labels=labels,
-            path=False,  # MedMNIST provides numpy arrays, not paths
-            rgb=False,   # MedMNIST images are grayscale
-            resize=True,
-            img_size=img_size
-        )
-        
-        return dataset, num_classes
-    
-    @classmethod
-    def from_custom(cls,
-                   images: Union[List[str], np.ndarray],
-                   labels: Union[List[int], np.ndarray],
-                   dataset_type: str = 'path',
-                   img_size: int = 224) -> BioFuseImageDataset:
-        """Create dataset from custom image paths or arrays"""
-        # Define transform for custom dataset
-        transform = transforms.Compose([
-            transforms.Resize((img_size, img_size)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        
-        return BioFuseImageDataset(
-            images=images,
-            labels=labels,
-            path=(dataset_type == 'path'),
-            rgb=True,
-            resize=True,
+            num_workers=num_workers,
+            subset_size=subset_size,
             img_size=img_size,
-            transform=transform
         )
-        
+
     @classmethod
-    def from_directory(cls, directory_path, img_size=224):
-        """Create dataset from a directory of images
-        
-        Args:
-            directory_path: Path to directory containing images
-            img_size: Size to resize images to
-            
-        Returns:
-            tuple: (image_paths, labels)
-        """
-        # Get all image files in directory
-        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff']
-        image_paths = []
-        labels = []
-        
-        # Check if directory has class subdirectories
-        subdirs = [d for d in os.listdir(directory_path) 
-                if os.path.isdir(os.path.join(directory_path, d))]
-        
-        if subdirs:
-            # Directory has class subdirectories
-            for class_idx, class_name in enumerate(sorted(subdirs)):
-                class_dir = os.path.join(directory_path, class_name)
-                for ext in image_extensions:
-                    class_images = glob.glob(os.path.join(class_dir, f'*{ext}'))
-                    class_images.extend(glob.glob(os.path.join(class_dir, f'*{ext.upper()}')))
-                    image_paths.extend(class_images)
-                    labels.extend([class_idx] * len(class_images))
-        else:
-            # Flat directory structure, use filenames as labels
-            for ext in image_extensions:
-                found_images = glob.glob(os.path.join(directory_path, f'*{ext}'))
-                found_images.extend(glob.glob(os.path.join(directory_path, f'*{ext.upper()}')))
-                image_paths.extend(found_images)
-                # Use filenames without extension as labels
-                for path in found_images:
-                    filename = os.path.splitext(os.path.basename(path))[0]
-                    try:
-                        # Try to convert filename to integer label
-                        labels.append(int(filename))
-                    except ValueError:
-                        # If not possible, use filename as string label
-                        labels.append(filename)
-        
+    def from_medmnist(
+        cls,
+        dataset_name: str,
+        split: str,
+        img_size: int,
+        root: str = '/data/medmnist',
+    ):
+        return load_medmnist(
+            dataset_name=dataset_name,
+            split=split,
+            img_size=img_size,
+            root=root,
+        )
+
+    @classmethod
+    def from_custom(
+        cls,
+        images: Union[List[str], np.ndarray],
+        labels: Union[List[int], np.ndarray],
+        dataset_type: str = 'path',
+        img_size: int = 224,
+    ):
+        return create_custom_dataset(
+            images=images,
+            labels=labels,
+            img_size=img_size,
+            from_paths=(dataset_type == 'path'),
+        )
+
+    @classmethod
+    def from_directory(cls, directory_path, img_size=224) -> Tuple[List[str], List[int]]:
+        image_paths, labels, _ = load_custom_directory(directory_path, img_size=img_size)
         return image_paths, labels

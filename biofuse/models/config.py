@@ -31,7 +31,6 @@ def get_hf_token():
 
     # Try .env file in project root
     try:
-        from pathlib import Path
         env_file = Path(__file__).parent.parent.parent / '.env'
         if env_file.exists():
             for line in env_file.read_text().splitlines():
