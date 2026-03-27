@@ -14,13 +14,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 COPY setup.py requirements.txt /workspace/
+COPY README.md LICENSE /workspace/
 
 RUN pip install --upgrade pip \
  && pip install -r requirements.txt \
  && pip install pytest black ruff mypy
 
-COPY . /workspace
+COPY biofuse /workspace/biofuse
+COPY data /workspace/data
 
-RUN pip install -e . --no-deps
+RUN pip install . --no-deps
 
 CMD ["biofuse", "smoke", "--preset", "custom", "--device", "cuda"]
