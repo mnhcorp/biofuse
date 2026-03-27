@@ -413,6 +413,7 @@ def extract_embeddings(config, train_loader, val_loader, test_loader, device, ca
     img_size = config.data.img_size
 
     all_embeddings = {}
+    loaded_models = {}
 
     for split_name, loader in [('train', train_loader), ('val', val_loader), ('test', test_loader)]:
         if loader is None:
@@ -428,8 +429,12 @@ def extract_embeddings(config, train_loader, val_loader, test_loader, device, ca
                 embeddings, labels = cache.load(dataset_name, model_name, img_size, split_name)
             else:
                 # Extract embeddings
-                model = PreTrainedEmbedding(model_name, device=device)
-                model.eval()
+                if model_name not in loaded_models:
+                    model = PreTrainedEmbedding(model_name, device=device)
+                    model.eval()
+                    loaded_models[model_name] = model
+
+                model = loaded_models[model_name]
 
                 batch_embeddings = []
                 batch_labels = []

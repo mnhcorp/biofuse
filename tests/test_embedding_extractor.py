@@ -62,6 +62,29 @@ def test_clip_structured_output_is_normalized_to_tensor():
     assert output.shape == (2, 512)
 
 
+def test_clip_loader_uses_explicit_cache_dir_and_retries_without_safetensors():
+    load_calls = []
+
+    def fake_from_pretrained(model_id, **kwargs):
+        load_calls.append((model_id, kwargs))
+        if len(load_calls) == 1:
+            raise OSError("missing safetensors snapshot")
+        return DummyClipModel()
+
+    with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
+         patch("biofuse.models.embedding_extractor.CACHE_DIR", "/tmp/biofuse-hf-cache"), \
+         patch("biofuse.models.embedding_extractor.AUTH_TOKEN", None), \
+         patch("biofuse.models.embedding_extractor.CLIPModel.from_pretrained", side_effect=fake_from_pretrained), \
+         patch("biofuse.models.embedding_extractor.CLIPProcessor.from_pretrained", return_value=DummyProcessor()):
+        PreTrainedEmbedding("CLIP", device="cpu")
+
+    assert load_calls[0][0] == "openai/clip-vit-base-patch32"
+    assert load_calls[0][1]["cache_dir"] == "/tmp/biofuse-hf-cache"
+    assert load_calls[0][1]["use_safetensors"] is True
+    assert load_calls[1][1]["cache_dir"] == "/tmp/biofuse-hf-cache"
+    assert "use_safetensors" not in load_calls[1][1]
+
+
 def test_login_is_skipped_without_hf_token():
     with patch("biofuse.models.embedding_extractor.AUTH_TOKEN", None), \
          patch("biofuse.models.embedding_extractor.login") as login_mock:

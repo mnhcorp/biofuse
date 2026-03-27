@@ -1,11 +1,12 @@
-from typing import Any, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from PIL import Image
 import torch
 from torchvision.transforms.functional import to_pil_image
 from transformers import AutoImageProcessor, AutoProcessor, AutoTokenizer, CLIPProcessor
 
-from biofuse.models.config import MODEL_MAP
+from biofuse.models.config import AUTH_TOKEN, CACHE_DIR, MODEL_MAP
 from biofuse.utils.reproducibility import get_device
 
 
@@ -53,6 +54,16 @@ def _move_to_device(data: Any, device: torch.device, dtype: Optional[torch.dtype
     return data
 
 
+def _hf_load_kwargs(**extra_kwargs):
+    Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+
+    load_kwargs: Dict[str, Any] = {"cache_dir": CACHE_DIR}
+    if AUTH_TOKEN:
+        load_kwargs["token"] = AUTH_TOKEN
+    load_kwargs.update(extra_kwargs)
+    return load_kwargs
+
+
 class ModelPreprocessor:
     def __init__(self, model_name, model_info, device: Optional[str] = None):
         self.model_name = model_name
@@ -67,7 +78,9 @@ class ModelPreprocessor:
         elif self.model_name == "CheXagent":
             preprocessor = AutoProcessor.from_pretrained(
                 self.model_info["model"],
+                **_hf_load_kwargs(
                 trust_remote_code=True,
+                ),
             )
         elif self.model_name == "CONCH":
             create_model_from_pretrained_conch = _load_conch_backend()
@@ -76,19 +89,30 @@ class ModelPreprocessor:
                 self.model_info["tokenizer"],
             )
         elif self.model_name in ["BioMistral", "LLama-3-Aloe"]:
-            preprocessor = AutoTokenizer.from_pretrained(self.model_info["model"])
+            preprocessor = AutoTokenizer.from_pretrained(
+                self.model_info["model"],
+                **_hf_load_kwargs(),
+            )
         elif self.model_name == "Prov-GigaPath":
             preprocessor = self.model_info["tokenizer"]
         elif self.model_name in ["PubMedCLIP", "CLIP"]:
-            preprocessor = CLIPProcessor.from_pretrained(self.model_info["model"])
+            preprocessor = CLIPProcessor.from_pretrained(
+                self.model_info["model"],
+                **_hf_load_kwargs(),
+            )
         elif self.model_name == "rad-dino":
-            preprocessor = AutoImageProcessor.from_pretrained(self.model_info["model"])
+            preprocessor = AutoImageProcessor.from_pretrained(
+                self.model_info["model"],
+                **_hf_load_kwargs(),
+            )
         elif self.model_name in ["UNI", "UNI2"]:
             preprocessor = self.model_info["tokenizer"]
         elif self.model_name == "Hibou-B":
             preprocessor = AutoImageProcessor.from_pretrained(
                 self.model_info["model"],
+                **_hf_load_kwargs(
                 trust_remote_code=True,
+                ),
             )
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")

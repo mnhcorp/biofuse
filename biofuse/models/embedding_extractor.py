@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 from PIL import Image
@@ -68,6 +69,31 @@ def _move_to_device(data: Any, device: torch.device, dtype: Optional[torch.dtype
     return data
 
 
+def _hf_load_kwargs(**extra_kwargs):
+    """Build a consistent Hugging Face load config for all model assets."""
+    Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+
+    load_kwargs: Dict[str, Any] = {"cache_dir": CACHE_DIR}
+    if AUTH_TOKEN:
+        load_kwargs["token"] = AUTH_TOKEN
+    load_kwargs.update(extra_kwargs)
+    return load_kwargs
+
+
+def _load_hf_asset(loader, model_id: str, retry_without_safetensors: bool = False, **kwargs):
+    """Load a HF model/processor with explicit cache handling and a small CLIP fallback."""
+    load_kwargs = _hf_load_kwargs(**kwargs)
+
+    try:
+        return loader(model_id, **load_kwargs)
+    except OSError:
+        if retry_without_safetensors and load_kwargs.get("use_safetensors"):
+            fallback_kwargs = dict(load_kwargs)
+            fallback_kwargs.pop("use_safetensors", None)
+            return loader(model_id, **fallback_kwargs)
+        raise
+
+
 def _as_tensor_output(output: Any) -> torch.Tensor:
     """Normalize different backend return types into a tensor embedding."""
     if torch.is_tensor(output):
@@ -124,6 +150,7 @@ class PreTrainedEmbedding(nn.Module):
 
     def login_to_hf(self):
         """Authenticate with HuggingFace if token is available."""
+        Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
         os.environ["HF_HOME"] = CACHE_DIR
 
         if AUTH_TOKEN:
@@ -143,21 +170,25 @@ class PreTrainedEmbedding(nn.Module):
             self.model, self.processor = create_model_from_pretrained(model_info["model"])
             self.tokenizer = get_tokenizer(model_info["model"])
         elif self.model_name == "CLIP":
-            self.model = CLIPModel.from_pretrained(
+            self.model = _load_hf_asset(
+                CLIPModel.from_pretrained,
                 model_info["model"],
                 trust_remote_code=True,
                 use_safetensors=True,
+                retry_without_safetensors=True,
             )
-            self.processor = CLIPProcessor.from_pretrained(model_info["model"])
+            self.processor = _load_hf_asset(CLIPProcessor.from_pretrained, model_info["model"])
         elif self.model_name == "BioMistral":
-            self.model = AutoModel.from_pretrained(model_info["model"])
-            self.processor = AutoTokenizer.from_pretrained(model_info["model"])
+            self.model = _load_hf_asset(AutoModel.from_pretrained, model_info["model"])
+            self.processor = _load_hf_asset(AutoTokenizer.from_pretrained, model_info["model"])
         elif self.model_name == "CheXagent":
-            self.model = AutoModelForCausalLM.from_pretrained(
+            self.model = _load_hf_asset(
+                AutoModelForCausalLM.from_pretrained,
                 model_info["model"],
                 trust_remote_code=True,
             )
-            self.processor = AutoProcessor.from_pretrained(
+            self.processor = _load_hf_asset(
+                AutoProcessor.from_pretrained,
                 model_info["model"],
                 trust_remote_code=True,
             )
@@ -168,8 +199,8 @@ class PreTrainedEmbedding(nn.Module):
                 model_info["tokenizer"],
             )
         elif self.model_name == "LLama-3-Aloe":
-            self.model = AutoModel.from_pretrained(model_info["model"])
-            self.processor = AutoTokenizer.from_pretrained(model_info["model"])
+            self.model = _load_hf_asset(AutoModel.from_pretrained, model_info["model"])
+            self.processor = _load_hf_asset(AutoTokenizer.from_pretrained, model_info["model"])
         elif self.model_name == "Prov-GigaPath":
             self.model = timm.create_model(
                 model_info["model"],
@@ -178,15 +209,17 @@ class PreTrainedEmbedding(nn.Module):
             )
             self.processor = model_info["tokenizer"]
         elif self.model_name == "PubMedCLIP":
-            self.model = CLIPModel.from_pretrained(
+            self.model = _load_hf_asset(
+                CLIPModel.from_pretrained,
                 model_info["model"],
                 trust_remote_code=True,
                 use_safetensors=True,
+                retry_without_safetensors=True,
             )
-            self.processor = CLIPProcessor.from_pretrained(model_info["model"])
+            self.processor = _load_hf_asset(CLIPProcessor.from_pretrained, model_info["model"])
         elif self.model_name == "rad-dino":
-            self.model = AutoModel.from_pretrained(model_info["model"])
-            self.processor = AutoImageProcessor.from_pretrained(model_info["model"])
+            self.model = _load_hf_asset(AutoModel.from_pretrained, model_info["model"])
+            self.processor = _load_hf_asset(AutoImageProcessor.from_pretrained, model_info["model"])
         elif self.model_name == "UNI":
             self.model = timm.create_model(
                 model_info["model"],
@@ -218,11 +251,13 @@ class PreTrainedEmbedding(nn.Module):
             )
             self.processor = model_info["tokenizer"]
         elif self.model_name == "Hibou-B":
-            self.model = AutoModel.from_pretrained(
+            self.model = _load_hf_asset(
+                AutoModel.from_pretrained,
                 model_info["model"],
                 trust_remote_code=True,
             )
-            self.processor = AutoImageProcessor.from_pretrained(
+            self.processor = _load_hf_asset(
+                AutoImageProcessor.from_pretrained,
                 model_info["model"],
                 trust_remote_code=True,
             )
