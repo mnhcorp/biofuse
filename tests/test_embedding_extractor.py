@@ -106,41 +106,77 @@ def test_login_is_skipped_without_hf_token():
     login_mock.assert_not_called()
 
 
-def test_uni_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint():
+def test_uni_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint(tmp_path):
     create_calls = []
+    download_calls = []
 
-    def fake_create_model(model_name, cache_dir=None, **kwargs):
-        create_calls.append((model_name, kwargs, cache_dir))
+    def fake_create_model(model_name, **kwargs):
+        create_calls.append((model_name, kwargs))
         return DummyTimmModel()
 
+    def fake_hf_download(**kwargs):
+        download_calls.append(kwargs)
+        local_dir = kwargs["local_dir"]
+        (local_dir / "pytorch_model.bin").write_bytes(b"checkpoint")
+        return str(local_dir / "pytorch_model.bin")
+
     with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
          patch("biofuse.models.embedding_extractor.timm.create_model", new=fake_create_model), \
-         patch("biofuse.models.embedding_extractor.resolve_data_config", return_value={}), \
-         patch("biofuse.models.embedding_extractor.create_transform", return_value=DummyProcessor()), \
-         patch("biofuse.models.embedding_extractor.CACHE_DIR", "/tmp/biofuse-hf-cache"):
+         patch("biofuse.models.embedding_extractor.hf_hub_download", side_effect=fake_hf_download), \
+         patch("biofuse.models.embedding_extractor.torch.load", return_value={}), \
+         patch.object(DummyTimmModel, "load_state_dict", return_value=None), \
+         patch("biofuse.models.embedding_extractor.CACHE_DIR", str(tmp_path)):
         extractor = PreTrainedEmbedding("UNI", device="cpu")
 
-    assert create_calls[0][0] == "hf-hub:MahmoodLab/UNI"
-    assert create_calls[0][1]["pretrained"] is True
-    assert create_calls[0][2] == "/tmp/biofuse-hf-cache"
+    assert create_calls[0][0] == "vit_large_patch16_224"
+    assert create_calls[0][1]["pretrained"] is False
+    assert download_calls[0]["repo_id"] == "MahmoodLab/UNI"
+    assert str(download_calls[0]["local_dir"]).endswith("ckpts/vit_large_patch16_224.dinov2.uni_mass100k")
     assert extractor.processor is not None
 
 
-def test_uni2_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint():
+def test_uni2_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint(tmp_path):
     create_calls = []
+    download_calls = []
 
-    def fake_create_model(model_name, cache_dir=None, **kwargs):
-        create_calls.append((model_name, kwargs, cache_dir))
+    def fake_create_model(model_name, **kwargs):
+        create_calls.append((model_name, kwargs))
         return DummyTimmModel(embedding_dim=1536)
+
+    def fake_hf_download(**kwargs):
+        download_calls.append(kwargs)
+        local_dir = kwargs["local_dir"]
+        (local_dir / "pytorch_model.bin").write_bytes(b"checkpoint")
+        return str(local_dir / "pytorch_model.bin")
 
     with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
          patch("biofuse.models.embedding_extractor.timm.create_model", new=fake_create_model), \
-         patch("biofuse.models.embedding_extractor.resolve_data_config", return_value={}), \
-         patch("biofuse.models.embedding_extractor.create_transform", return_value=DummyProcessor()), \
-         patch("biofuse.models.embedding_extractor.CACHE_DIR", "/tmp/biofuse-hf-cache"):
+         patch("biofuse.models.embedding_extractor.hf_hub_download", side_effect=fake_hf_download), \
+         patch("biofuse.models.embedding_extractor.torch.load", return_value={}), \
+         patch.object(DummyTimmModel, "load_state_dict", return_value=None), \
+         patch("biofuse.models.embedding_extractor.CACHE_DIR", str(tmp_path)):
         extractor = PreTrainedEmbedding("UNI2", device="cpu")
 
-    assert create_calls[0][0] == "hf-hub:MahmoodLab/UNI2-h"
-    assert create_calls[0][1]["pretrained"] is True
-    assert create_calls[0][2] == "/tmp/biofuse-hf-cache"
+    assert create_calls[0][0] == "vit_giant_patch14_224"
+    assert create_calls[0][1]["pretrained"] is False
+    assert download_calls[0]["repo_id"] == "MahmoodLab/UNI2-h"
+    assert str(download_calls[0]["local_dir"]).endswith("ckpts/uni2-h")
     assert extractor.processor is not None
+
+
+def test_uni_reuses_existing_checkpoint_without_redownloading(tmp_path):
+    checkpoint_dir = tmp_path / "ckpts" / "vit_large_patch16_224.dinov2.uni_mass100k"
+    checkpoint_dir.mkdir(parents=True)
+    checkpoint_path = checkpoint_dir / "pytorch_model.bin"
+    checkpoint_path.write_bytes(b"checkpoint")
+
+    with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
+         patch("biofuse.models.embedding_extractor.CACHE_DIR", str(tmp_path)), \
+         patch("biofuse.models.embedding_extractor.hf_hub_download") as download_mock, \
+         patch("biofuse.models.embedding_extractor.timm.create_model", return_value=DummyTimmModel()), \
+         patch("biofuse.models.embedding_extractor.torch.load", return_value={}), \
+         patch.object(DummyTimmModel, "load_state_dict", return_value=None):
+        PreTrainedEmbedding("UNI", device="cpu")
+
+    download_mock.assert_not_called()
+    assert checkpoint_path.exists()

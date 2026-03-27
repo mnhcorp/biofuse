@@ -150,7 +150,13 @@ nano .env
    - [CONCH](https://huggingface.co/MahmoodLab/CONCH)
    - [CheXagent](https://huggingface.co/StanfordAIMI/CheXagent-8b)
 
-After you have accepted access and set `HF_TOKEN`, gated encoders such as `UNI`, `UNI2`, `CONCH`, and `CheXagent` are downloaded automatically into the Hugging Face cache on first use.
+After you have accepted access and set `HF_TOKEN`, gated encoders such as `UNI`, `UNI2`, `CONCH`, and `CheXagent` are downloaded automatically on first use.
+
+For `UNI` and `UNI2`, BioFuse uses the checkpoint layout:
+- `${HF_HOME}/ckpts/vit_large_patch16_224.dinov2.uni_mass100k/pytorch_model.bin`
+- `${HF_HOME}/ckpts/uni2-h/pytorch_model.bin`
+
+If those files already exist, BioFuse reuses them instead of downloading again.
 
 **Token Priority (BioFuse checks in this order):**
 1. `HF_TOKEN` environment variable

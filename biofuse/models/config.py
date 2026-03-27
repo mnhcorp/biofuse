@@ -114,7 +114,8 @@ MODEL_MAP = {
             "UNI": {
                 "model": "vit_large_patch16_224",
                 "hf_model": "MahmoodLab/UNI",
-                "hf_model_fallback": "MahmoodLab/uni",
+                "checkpoint_subdir": "vit_large_patch16_224.dinov2.uni_mass100k",
+                "checkpoint_file": "pytorch_model.bin",
                 "tokenizer": transforms.Compose(
                     [
                         transforms.Resize(224),
@@ -126,6 +127,8 @@ MODEL_MAP = {
             "UNI2": {
                 "model": "uni2-h",
                 "hf_model": "MahmoodLab/UNI2-h",
+                "checkpoint_subdir": "uni2-h",
+                "checkpoint_file": "pytorch_model.bin",
                 "tokenizer": transforms.Compose(
                     [
                         transforms.Resize(224),

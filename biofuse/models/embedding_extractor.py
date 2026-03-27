@@ -1,5 +1,4 @@
 import os
-import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -7,8 +6,6 @@ from PIL import Image
 import timm
 import torch
 import torch.nn as nn
-from timm.data import resolve_data_config
-from timm.data.transforms_factory import create_transform
 from torchvision.transforms.functional import to_pil_image
 from transformers import (
     AutoImageProcessor,
@@ -19,7 +16,7 @@ from transformers import (
     CLIPModel,
     CLIPProcessor,
 )
-from huggingface_hub import login
+from huggingface_hub import hf_hub_download, login
 
 from biofuse.models.config import AUTH_TOKEN, CACHE_DIR, MODEL_MAP
 from biofuse.utils.reproducibility import get_device
@@ -97,36 +94,23 @@ def _load_hf_asset(loader, model_id: str, retry_without_safetensors: bool = Fals
         raise
 
 
-def _build_timm_processor(model, fallback_transform):
-    """Prefer the model's published preprocessing when timm exposes it."""
-    try:
-        data_config = resolve_data_config(model.pretrained_cfg, model=model)
-        return create_transform(**data_config)
-    except Exception:
-        return fallback_transform
+def _ensure_checkpoint(model_info: Dict[str, Any]) -> Path:
+    """Reuse an existing checkpoint or download it to the standard BioFuse layout."""
+    checkpoint_dir = Path(CACHE_DIR) / "ckpts" / model_info["checkpoint_subdir"]
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / model_info["checkpoint_file"]
 
+    if checkpoint_path.exists():
+        return checkpoint_path
 
-def _load_timm_hf_model(repo_id: str, fallback_repo_id: Optional[str] = None, **kwargs):
-    """Load a timm model from the HF Hub using the configured cache directory."""
-    repo_ids = [repo_id]
-    if fallback_repo_id and fallback_repo_id not in repo_ids:
-        repo_ids.append(fallback_repo_id)
-
-    last_exc = None
-    for candidate in repo_ids:
-        try:
-            timm_kwargs = dict(kwargs)
-            if "cache_dir" in inspect.signature(timm.create_model).parameters:
-                timm_kwargs["cache_dir"] = CACHE_DIR
-
-            return timm.create_model(f"hf-hub:{candidate}", **timm_kwargs)
-        except (OSError, RuntimeError, ValueError) as exc:
-            last_exc = exc
-
-    if last_exc is not None:
-        raise last_exc
-
-    raise RuntimeError(f"Failed to load timm model from Hugging Face Hub: {repo_id}")
+    hf_hub_download(
+        repo_id=model_info["hf_model"],
+        filename=model_info["checkpoint_file"],
+        local_dir=checkpoint_dir,
+        token=AUTH_TOKEN,
+        local_dir_use_symlinks=False,
+    )
+    return checkpoint_path
 
 
 def _as_tensor_output(output: Any) -> torch.Tensor:
@@ -256,25 +240,34 @@ class PreTrainedEmbedding(nn.Module):
             self.model = _load_hf_asset(AutoModel.from_pretrained, model_info["model"])
             self.processor = _load_hf_asset(AutoImageProcessor.from_pretrained, model_info["model"])
         elif self.model_name == "UNI":
-            self.model = _load_timm_hf_model(
-                model_info["hf_model"],
-                fallback_repo_id=model_info.get("hf_model_fallback"),
-                pretrained=True,
+            checkpoint_path = _ensure_checkpoint(model_info)
+            self.model = timm.create_model(
+                model_info["model"],
+                pretrained=False,
                 patch_size=16,
                 init_values=1e-5,
                 num_classes=0,
                 dynamic_img_size=True,
             )
-            self.processor = _build_timm_processor(self.model, model_info["tokenizer"])
-        elif self.model_name == "UNI2":
-            timm_kwargs = dict(model_info["timm_kwargs"])
-            timm_kwargs.pop("model_name", None)
-            self.model = _load_timm_hf_model(
-                model_info["hf_model"],
-                **timm_kwargs,
-                pretrained=True,
+            self.model.load_state_dict(
+                torch.load(checkpoint_path, map_location="cpu"),
+                strict=True,
             )
-            self.processor = _build_timm_processor(self.model, model_info["tokenizer"])
+            self.processor = model_info["tokenizer"]
+        elif self.model_name == "UNI2":
+            checkpoint_path = _ensure_checkpoint(model_info)
+            timm_kwargs = dict(model_info["timm_kwargs"])
+            model_name = timm_kwargs.pop("model_name", model_info["model"])
+            self.model = timm.create_model(
+                model_name,
+                pretrained=False,
+                **timm_kwargs,
+            )
+            self.model.load_state_dict(
+                torch.load(checkpoint_path, map_location="cpu"),
+                strict=True,
+            )
+            self.processor = model_info["tokenizer"]
         elif self.model_name == "Hibou-B":
             self.model = _load_hf_asset(
                 AutoModel.from_pretrained,
