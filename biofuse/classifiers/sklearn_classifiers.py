@@ -5,6 +5,7 @@ Includes logistic regression, XGBoost, and CatBoost classifiers with
 sensible defaults for biomedical imaging tasks.
 """
 
+import inspect
 import time
 from typing import Optional, Dict, Any
 import numpy as np
@@ -15,6 +16,11 @@ import xgboost as xgb
 from catboost import CatBoostClassifier
 
 from .base import BaseClassifier, ClassifierFactory
+
+
+def _supports_kwarg(callable_obj, parameter_name: str) -> bool:
+    """Check whether a backend constructor still accepts a specific kwarg."""
+    return parameter_name in inspect.signature(callable_obj).parameters
 
 
 class LogisticRegression(BaseClassifier):
@@ -69,12 +75,15 @@ class LogisticRegression(BaseClassifier):
         self.multi_label = len(y.shape) > 1 and y.shape[1] > 1
 
         # Create classifier
+        classifier_kwargs = dict(self.kwargs)
+        if self.multi_class is not None and _supports_kwarg(SklearnLogisticRegression, 'multi_class'):
+            classifier_kwargs['multi_class'] = self.multi_class
+
         self.classifier = SklearnLogisticRegression(
             C=self.C,
             max_iter=self.max_iter,
-            multi_class=self.multi_class,
             random_state=self.random_state,
-            **self.kwargs
+            **classifier_kwargs
         )
 
         # Train
