@@ -68,6 +68,34 @@ def _move_to_device(data: Any, device: torch.device, dtype: Optional[torch.dtype
     return data
 
 
+def _as_tensor_output(output: Any) -> torch.Tensor:
+    """Normalize different backend return types into a tensor embedding."""
+    if torch.is_tensor(output):
+        return output
+
+    if isinstance(output, (list, tuple)) and output:
+        first = output[0]
+        if torch.is_tensor(first):
+            return first
+
+    for attr in ("image_embeds", "pooler_output", "last_hidden_state", "logits"):
+        value = getattr(output, attr, None)
+        if torch.is_tensor(value):
+            if attr == "last_hidden_state" and value.ndim >= 3:
+                return value[:, 0, :]
+            return value
+
+    if isinstance(output, dict):
+        for key in ("image_embeds", "pooler_output", "last_hidden_state", "logits"):
+            value = output.get(key)
+            if torch.is_tensor(value):
+                if key == "last_hidden_state" and value.ndim >= 3:
+                    return value[:, 0, :]
+                return value
+
+    raise TypeError(f"Unsupported model output type for embedding extraction: {type(output)}")
+
+
 class PreTrainedEmbedding(nn.Module):
     def __init__(
         self,
@@ -102,11 +130,6 @@ class PreTrainedEmbedding(nn.Module):
             os.environ["HF_TOKEN"] = AUTH_TOKEN
             try:
                 login(token=AUTH_TOKEN, add_to_git_credential=False)
-            except Exception:
-                pass
-        else:
-            try:
-                login(add_to_git_credential=False)
             except Exception:
                 pass
 
@@ -319,6 +342,8 @@ class PreTrainedEmbedding(nn.Module):
                 outputs = self.model.vision_model(**prepared_input).last_hidden_state[:, 0, :]
             else:
                 outputs = self.model(**prepared_input).last_hidden_state[:, 0, :]
+
+        outputs = _as_tensor_output(outputs)
 
         if outputs.dim() == 1:
             outputs = outputs.unsqueeze(0)
