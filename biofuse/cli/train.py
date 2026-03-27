@@ -112,10 +112,12 @@ def run_experiment(exp_config: ExperimentConfig, verbose: bool = False):
         data_root=exp_config.data.data_root,
         output_dir=exp_config.output_dir,
     )
+    output_path = path_manager.get_output_path(exp_config.name, unique=True)
+    exp_config.name = output_path.name
 
     exp_logger = ExperimentLogger(
         experiment_name=exp_config.name,
-        log_dir=Path(exp_config.output_dir) / 'logs',
+        log_dir=output_path / 'logs',
         console=verbose,
     )
     exp_logger.log_params(exp_config.to_dict())
@@ -180,7 +182,6 @@ def run_experiment(exp_config: ExperimentConfig, verbose: bool = False):
             if isinstance(value, float):
                 click.echo(f"  {metric}: {value:.4f}")
 
-    output_path = path_manager.get_output_path(exp_config.name)
     exp_config.save(output_path / 'config.yaml')
     click.echo(f"\nConfig saved to: {output_path / 'config.yaml'}")
     click.echo("\n✓ Training completed successfully!")

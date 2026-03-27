@@ -6,6 +6,7 @@ they are configurable via environment variables.
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
 
@@ -126,7 +127,9 @@ class PathManager:
     def get_output_path(
         self,
         experiment_name: str,
-        filename: Optional[str] = None
+        filename: Optional[str] = None,
+        unique: bool = False,
+        run_id: Optional[str] = None,
     ) -> Path:
         """
         Get path for experiment outputs.
@@ -134,12 +137,24 @@ class PathManager:
         Args:
             experiment_name: Name of the experiment
             filename: Optional filename within experiment directory
+            unique: Whether to create a unique timestamped run directory
+            run_id: Optional explicit run identifier
 
         Returns:
             Path to output file or directory
         """
-        exp_dir = self.output_dir / experiment_name
-        exp_dir.mkdir(parents=True, exist_ok=True)
+        if unique:
+            timestamp = run_id or datetime.now().strftime('%Y%m%d-%H%M%S')
+            base_dir = self.output_dir / f"{experiment_name}_{timestamp}"
+            exp_dir = base_dir
+            counter = 2
+            while exp_dir.exists():
+                exp_dir = self.output_dir / f"{base_dir.name}-{counter:02d}"
+                counter += 1
+            exp_dir.mkdir(parents=True, exist_ok=False)
+        else:
+            exp_dir = self.output_dir / experiment_name
+            exp_dir.mkdir(parents=True, exist_ok=True)
 
         if filename:
             return exp_dir / filename

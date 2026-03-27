@@ -266,6 +266,9 @@ biofuse train -d pathmnist -m BioMedCLIP
 biofuse train -d pathmnist -m CLIP --max-train-samples 64 --max-val-samples 32
 biofuse train -d breastmnist -m UNI --device cuda
 
+# Output directories are timestamped per run, for example:
+# ./results/train_breastmnist_20260327-153045
+
 # Cache management  
 biofuse cache list
 biofuse cache clear --dataset pathmnist
