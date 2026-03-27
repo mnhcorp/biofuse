@@ -1,3 +1,4 @@
+import inspect
 from typing import List, Optional
 
 import numpy as np
@@ -244,6 +245,9 @@ class BioFuse:
                 fusion_method=self.fusion_method,
                 projection_dim=self.projection_dim,
             ).to(self.device)
-        self.biofuse_model.load_state_dict(torch.load(path, map_location=self.device))
+        load_kwargs = {"map_location": self.device}
+        if "weights_only" in inspect.signature(torch.load).parameters:
+            load_kwargs["weights_only"] = True
+        self.biofuse_model.load_state_dict(torch.load(path, **load_kwargs))
         self.biofuse_model.eval()
         return self.biofuse_model

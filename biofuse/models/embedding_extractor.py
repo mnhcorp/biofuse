@@ -1,4 +1,5 @@
 import os
+import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -16,7 +17,7 @@ from transformers import (
     CLIPModel,
     CLIPProcessor,
 )
-from huggingface_hub import hf_hub_download, login
+from huggingface_hub import hf_hub_download
 
 from biofuse.models.config import AUTH_TOKEN, CACHE_DIR, MODEL_MAP
 from biofuse.utils.reproducibility import get_device
@@ -108,9 +109,16 @@ def _ensure_checkpoint(model_info: Dict[str, Any]) -> Path:
         filename=model_info["checkpoint_file"],
         local_dir=checkpoint_dir,
         token=AUTH_TOKEN,
-        local_dir_use_symlinks=False,
     )
     return checkpoint_path
+
+
+def _load_checkpoint(path: Union[str, Path], map_location: Union[str, torch.device]):
+    """Load a trusted state dict with the safest torch.load mode this runtime supports."""
+    load_kwargs = {"map_location": map_location}
+    if "weights_only" in inspect.signature(torch.load).parameters:
+        load_kwargs["weights_only"] = True
+    return torch.load(path, **load_kwargs)
 
 
 def _as_tensor_output(output: Any) -> torch.Tensor:
@@ -168,16 +176,12 @@ class PreTrainedEmbedding(nn.Module):
             param.requires_grad = False
 
     def login_to_hf(self):
-        """Authenticate with HuggingFace if token is available."""
+        """Configure HuggingFace cache and auth for non-interactive model loading."""
         Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
         os.environ["HF_HOME"] = CACHE_DIR
 
         if AUTH_TOKEN:
             os.environ["HF_TOKEN"] = AUTH_TOKEN
-            try:
-                login(token=AUTH_TOKEN, add_to_git_credential=False)
-            except Exception:
-                pass
 
     def _load_model(self):
         model_info = MODEL_MAP.get(self.model_name)
@@ -250,7 +254,7 @@ class PreTrainedEmbedding(nn.Module):
                 dynamic_img_size=True,
             )
             self.model.load_state_dict(
-                torch.load(checkpoint_path, map_location="cpu"),
+                _load_checkpoint(checkpoint_path, map_location="cpu"),
                 strict=True,
             )
             self.processor = model_info["tokenizer"]
@@ -264,7 +268,7 @@ class PreTrainedEmbedding(nn.Module):
                 **timm_kwargs,
             )
             self.model.load_state_dict(
-                torch.load(checkpoint_path, map_location="cpu"),
+                _load_checkpoint(checkpoint_path, map_location="cpu"),
                 strict=True,
             )
             self.processor = model_info["tokenizer"]

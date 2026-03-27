@@ -1,9 +1,11 @@
+import os
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import torch
 import torch.nn as nn
 
+import biofuse.models.embedding_extractor as embedding_extractor
 from biofuse.models.embedding_extractor import PreTrainedEmbedding
 
 
@@ -97,13 +99,42 @@ def test_clip_loader_uses_explicit_cache_dir_and_retries_without_safetensors():
     assert "use_safetensors" not in load_calls[1][1]
 
 
-def test_login_is_skipped_without_hf_token():
-    with patch("biofuse.models.embedding_extractor.AUTH_TOKEN", None), \
-         patch("biofuse.models.embedding_extractor.login") as login_mock:
+def test_login_is_skipped_without_hf_token(monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    with patch("biofuse.models.embedding_extractor.AUTH_TOKEN", None):
         instance = PreTrainedEmbedding.__new__(PreTrainedEmbedding)
         instance.login_to_hf()
 
-    login_mock.assert_not_called()
+    assert "HF_TOKEN" not in os.environ
+
+
+def test_login_to_hf_only_sets_environment_for_existing_token(monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    with patch("biofuse.models.embedding_extractor.AUTH_TOKEN", "hf_test"), \
+         patch("biofuse.models.embedding_extractor.CACHE_DIR", "/tmp/biofuse-hf-cache"):
+        instance = PreTrainedEmbedding.__new__(PreTrainedEmbedding)
+        instance.login_to_hf()
+
+    assert os.environ["HF_TOKEN"] == "hf_test"
+
+
+def test_load_checkpoint_prefers_weights_only_when_supported():
+    captured = {}
+
+    def fake_torch_load(path, map_location=None, weights_only=False):
+        captured["path"] = path
+        captured["map_location"] = map_location
+        captured["weights_only"] = weights_only
+        return {}
+
+    with patch("biofuse.models.embedding_extractor.torch.load", new=fake_torch_load):
+        embedding_extractor._load_checkpoint("/tmp/checkpoint.bin", map_location="cpu")
+
+    assert captured["path"] == "/tmp/checkpoint.bin"
+    assert captured["map_location"] == "cpu"
+    assert captured["weights_only"] is True
 
 
 def test_uni_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint(tmp_path):
@@ -123,7 +154,7 @@ def test_uni_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint(tmp_path):
     with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
          patch("biofuse.models.embedding_extractor.timm.create_model", new=fake_create_model), \
          patch("biofuse.models.embedding_extractor.hf_hub_download", side_effect=fake_hf_download), \
-         patch("biofuse.models.embedding_extractor.torch.load", return_value={}), \
+         patch("biofuse.models.embedding_extractor.torch.load", return_value={}) as torch_load_mock, \
          patch.object(DummyTimmModel, "load_state_dict", return_value=None), \
          patch("biofuse.models.embedding_extractor.CACHE_DIR", str(tmp_path)):
         extractor = PreTrainedEmbedding("UNI", device="cpu")
@@ -152,7 +183,7 @@ def test_uni2_loads_from_hf_hub_via_timm_without_hardcoded_checkpoint(tmp_path):
     with patch.object(PreTrainedEmbedding, "login_to_hf", return_value=None), \
          patch("biofuse.models.embedding_extractor.timm.create_model", new=fake_create_model), \
          patch("biofuse.models.embedding_extractor.hf_hub_download", side_effect=fake_hf_download), \
-         patch("biofuse.models.embedding_extractor.torch.load", return_value={}), \
+         patch("biofuse.models.embedding_extractor.torch.load", return_value={}) as torch_load_mock, \
          patch.object(DummyTimmModel, "load_state_dict", return_value=None), \
          patch("biofuse.models.embedding_extractor.CACHE_DIR", str(tmp_path)):
         extractor = PreTrainedEmbedding("UNI2", device="cpu")
