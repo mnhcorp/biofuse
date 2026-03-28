@@ -24,7 +24,7 @@ import torch
 
 from ..config.config import FusionMethod
 from ..models.config import AUTH_TOKEN, MODEL_MAP
-from .smoke import build_repo_sample_dataset
+from .smoke import build_repo_sample_dataset, resolve_sample_data_dir
 
 
 MEDMNIST_DATASETS = [
@@ -478,8 +478,7 @@ def matrix(
         f"{', '.join(resolved_devices)} | parallel workers: {parallelism}"
     )
 
-    repo_root = Path(__file__).resolve().parents[2]
-    source_dir = repo_root / "data"
+    source_dir = resolve_sample_data_dir()
 
     with tempfile.TemporaryDirectory(prefix="biofuse-matrix-custom-") as tmpdir:
         custom_root = str(Path(tmpdir) / "dataset")

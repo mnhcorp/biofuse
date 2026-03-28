@@ -51,3 +51,31 @@ def test_smoke_medmnist_uses_requested_dataset(monkeypatch):
     assert captured["dataset"] == "pathmnist"
     assert captured["data_root"] == "/data/medmnist"
     assert captured["experiment_name"] == "smoke_pathmnist"
+
+
+def test_resolve_sample_data_dir_prefers_env_override(tmp_path, monkeypatch):
+    sample_dir = tmp_path / "sample-data"
+    sample_dir.mkdir()
+    for filename in ["xray.jpg", "hist.jpg", "bcc.jpg"]:
+        (sample_dir / filename).write_bytes(b"test")
+
+    monkeypatch.setenv("BIOFUSE_SAMPLE_DATA_DIR", str(sample_dir))
+
+    assert smoke_module.resolve_sample_data_dir() == sample_dir
+
+
+def test_resolve_sample_data_dir_raises_clear_error_when_missing(monkeypatch):
+    monkeypatch.delenv("BIOFUSE_SAMPLE_DATA_DIR", raising=False)
+
+    try:
+        smoke_module.resolve_sample_data_dir(
+            extra_candidates=["/definitely/missing"],
+            include_default_candidates=False,
+        )
+    except FileNotFoundError as exc:
+        message = str(exc)
+    else:  # pragma: no cover - defensive guard
+        raise AssertionError("expected FileNotFoundError")
+
+    assert "BIOFUSE_SAMPLE_DATA_DIR" in message
+    assert "xray.jpg" in message

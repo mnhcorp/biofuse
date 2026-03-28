@@ -4,6 +4,7 @@ Smoke-test command for BioFuse CLI.
 Provides fast end-to-end checks for custom sample data and MedMNIST subsets.
 """
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -37,6 +38,43 @@ def build_repo_sample_dataset(source_dir: Path, dataset_root: Path) -> None:
             class_dir.mkdir(parents=True, exist_ok=True)
             for index, filename in enumerate(filenames):
                 shutil.copy2(source_dir / filename, class_dir / f"{index}_{filename}")
+
+
+def resolve_sample_data_dir(extra_candidates=None, include_default_candidates: bool = True) -> Path:
+    """Locate the bundled sample-image directory across source and container installs."""
+    required_files = {"xray.jpg", "hist.jpg", "bcc.jpg"}
+    candidates = []
+
+    env_dir = os.environ.get("BIOFUSE_SAMPLE_DATA_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+
+    if include_default_candidates:
+        candidates.extend(
+            [
+                Path("/workspace/data"),
+                Path.cwd() / "data",
+                Path(__file__).resolve().parents[2] / "data",
+            ]
+        )
+
+    if extra_candidates:
+        candidates.extend(Path(path) for path in extra_candidates)
+
+    checked = []
+    for candidate in candidates:
+        if candidate in checked:
+            continue
+        checked.append(candidate)
+        if candidate.is_dir() and required_files.issubset({path.name for path in candidate.iterdir()}):
+            return candidate
+
+    candidate_text = ", ".join(str(path) for path in checked)
+    raise FileNotFoundError(
+        "Could not locate BioFuse sample data directory. "
+        f"Checked: {candidate_text}. "
+        "Set BIOFUSE_SAMPLE_DATA_DIR to a directory containing xray.jpg, hist.jpg, and bcc.jpg."
+    )
 
 
 @click.command('smoke')
@@ -87,8 +125,7 @@ def smoke(
     verbose = ctx.obj.get('verbose', False)
 
     if preset == 'custom':
-        repo_root = Path(__file__).resolve().parents[2]
-        source_dir = repo_root / 'data'
+        source_dir = resolve_sample_data_dir()
 
         with tempfile.TemporaryDirectory(prefix='biofuse-smoke-') as tmpdir:
             dataset_root = Path(tmpdir) / 'dataset'
