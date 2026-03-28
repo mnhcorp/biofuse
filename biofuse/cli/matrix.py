@@ -8,6 +8,7 @@ classifiers, and prints a tabular PASS/FAIL/SKIP summary.
 from __future__ import annotations
 
 import csv
+import os
 import re
 import shlex
 import subprocess
@@ -16,9 +17,10 @@ import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import click
+import torch
 
 from ..config.config import FusionMethod
 from ..models.config import AUTH_TOKEN, MODEL_MAP
@@ -298,6 +300,45 @@ def _build_command(
     return command
 
 
+def _normalize_device_name(device: str) -> str:
+    device = device.strip()
+    if device.isdigit():
+        return f"cuda:{device}"
+    return device
+
+
+def _resolve_devices(devices: str, legacy_device: Optional[str] = None) -> List[str]:
+    if legacy_device:
+        return [_normalize_device_name(legacy_device)]
+
+    if devices == "auto":
+        if torch.cuda.is_available():
+            return [f"cuda:{index}" for index in range(torch.cuda.device_count())]
+        return ["cpu"]
+
+    resolved = [_normalize_device_name(item) for item in devices.split(",") if item.strip()]
+    return resolved or ["cpu"]
+
+
+def _subprocess_device_config(device: str) -> Tuple[str, Dict[str, str]]:
+    env = os.environ.copy()
+
+    if device.startswith("cuda:"):
+        physical_index = device.split(":", 1)[1]
+        env["CUDA_VISIBLE_DEVICES"] = physical_index
+        return "cuda:0", env
+
+    return device, env
+
+
+def _determine_parallelism(devices: List[str], max_parallel: Optional[int]) -> int:
+    if not devices:
+        return 1
+    if max_parallel is None or max_parallel <= 0:
+        return len(devices)
+    return max(1, min(len(devices), max_parallel))
+
+
 def _extract_output_path(stdout: str) -> str:
     match = re.search(r"Config saved to:\s*(.+)", stdout)
     return match.group(1).strip() if match else ""
@@ -318,6 +359,7 @@ def _render_table(rows: List[dict]) -> str:
     columns = [
         ("suite", "suite"),
         ("target", "target"),
+        ("device", "device"),
         ("status", "status"),
         ("duration_s", "sec"),
         ("note", "note"),
@@ -355,6 +397,7 @@ def _write_csv(rows: List[dict], path: Path) -> None:
         "models",
         "fusion_method",
         "classifier",
+        "device",
         "status",
         "duration_s",
         "returncode",
@@ -369,7 +412,9 @@ def _write_csv(rows: List[dict], path: Path) -> None:
 
 
 @click.command("matrix")
-@click.option("--device", type=str, help="Device to use (cuda/cpu)")
+@click.option("--device", type=str, help="Single device override (deprecated; prefer --devices)")
+@click.option("--devices", type=str, default="auto", show_default=True, help="Comma-separated devices or 'auto' to detect GPUs")
+@click.option("--max-parallel", type=int, help="Maximum concurrent runs (defaults to number of devices)")
 @click.option("--output-dir", type=str, default="./results/matrix", show_default=True, help="Directory for matrix outputs")
 @click.option("--models", type=str, default="all", show_default=True, help="Comma-separated encoder list or 'all'")
 @click.option("--datasets", type=str, default="all", show_default=True, help="Comma-separated dataset list or 'all'")
@@ -388,6 +433,8 @@ def _write_csv(rows: List[dict], path: Path) -> None:
 def matrix(
     ctx,
     device,
+    devices,
+    max_parallel,
     output_dir,
     models,
     datasets,
@@ -421,9 +468,15 @@ def matrix(
     selected_datasets = _parse_selection(datasets, ALL_DATASETS)
     selected_fusion_methods = _parse_selection(fusion_methods, ALL_FUSION_METHODS)
     selected_classifiers = _parse_selection(classifiers, ALL_CLASSIFIERS)
+    resolved_devices = _resolve_devices(devices, legacy_device=device)
+    parallelism = _determine_parallelism(resolved_devices, max_parallel)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    click.echo(
+        "Devices: "
+        f"{', '.join(resolved_devices)} | parallel workers: {parallelism}"
+    )
 
     repo_root = Path(__file__).resolve().parents[2]
     source_dir = repo_root / "data"
@@ -444,68 +497,99 @@ def matrix(
             fusion_models=fusion_models,
         )
 
-        rows = []
+        rows_by_index: Dict[int, dict] = {}
         total = len(cases)
-        for index, case in enumerate(cases, start=1):
-            click.echo(f"[{index}/{total}] {case.suite}:{case.target}")
-            command = _build_command(
-                case,
-                output_dir=output_path,
-                device=device,
-                batch_size=batch_size,
-                img_size=img_size,
-                max_train_samples=max_train_samples,
-                max_val_samples=max_val_samples,
-                max_test_samples=max_test_samples,
-            )
+        free_devices = resolved_devices[:parallelism]
+        pending = list(enumerate(cases, start=1))
+        active = []
 
-            start = time.time()
-            if case.skip_reason:
-                rows.append(
+        while pending or active:
+            while pending and free_devices:
+                index, case = pending[0]
+                slot_device = free_devices.pop(0)
+                child_device, env = _subprocess_device_config(slot_device)
+                command = _build_command(
+                    case,
+                    output_dir=output_path,
+                    device=child_device,
+                    batch_size=batch_size,
+                    img_size=img_size,
+                    max_train_samples=max_train_samples,
+                    max_val_samples=max_val_samples,
+                    max_test_samples=max_test_samples,
+                )
+
+                if case.skip_reason:
+                    rows_by_index[index] = (
+                        {
+                            **asdict(case),
+                            "device": slot_device,
+                            "status": "SKIP",
+                            "duration_s": 0.0,
+                            "returncode": "",
+                            "output_path": "",
+                            "note": case.skip_reason,
+                            "command": shlex.join(command),
+                        }
+                    )
+                    free_devices.append(slot_device)
+                    pending.pop(0)
+                    continue
+
+                click.echo(f"[start {index}/{total}] {case.suite}:{case.target} on {slot_device}")
+                proc = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=env,
+                )
+                active.append(
                     {
-                        **asdict(case),
-                        "status": "SKIP",
-                        "duration_s": 0.0,
-                        "returncode": "",
-                        "output_path": "",
-                        "note": case.skip_reason,
-                        "command": shlex.join(command),
+                        "index": index,
+                        "case": case,
+                        "slot_device": slot_device,
+                        "command": command,
+                        "process": proc,
+                        "start_time": time.time(),
                     }
                 )
-                continue
+                pending.pop(0)
 
-            try:
-                completed = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    check=False,
+            completed_any = False
+            for item in list(active):
+                returncode = item["process"].poll()
+                if returncode is None:
+                    continue
+
+                stdout, stderr = item["process"].communicate()
+                duration_s = time.time() - item["start_time"]
+                status = "PASS" if returncode == 0 else "FAIL"
+                case = item["case"]
+                click.echo(
+                    f"[done  {item['index']}/{total}] {status} {case.suite}:{case.target} "
+                    f"on {item['slot_device']} ({duration_s:.1f}s)"
                 )
-                duration_s = time.time() - start
-                status = "PASS" if completed.returncode == 0 else "FAIL"
-                rows.append(
+                rows_by_index[item["index"]] = (
                     {
                         **asdict(case),
+                        "device": item["slot_device"],
                         "status": status,
                         "duration_s": duration_s,
-                        "returncode": completed.returncode,
-                        "output_path": _extract_output_path(completed.stdout),
-                        "note": _short_note(completed.stdout, completed.stderr),
-                        "command": shlex.join(command),
+                        "returncode": returncode,
+                        "output_path": _extract_output_path(stdout),
+                        "note": _short_note(stdout, stderr),
+                        "command": shlex.join(item["command"]),
                     }
                 )
-            except Exception as exc:  # pragma: no cover - defensive guard
-                rows.append(
-                    {
-                        **asdict(case),
-                        "status": "FAIL",
-                        "duration_s": time.time() - start,
-                        "returncode": "",
-                        "output_path": "",
-                        "note": _short_note("", "", exc=exc),
-                        "command": shlex.join(command),
-                    }
-                )
+                free_devices.append(item["slot_device"])
+                active.remove(item)
+                completed_any = True
+
+            if not completed_any and active:
+                time.sleep(0.2)
+
+        rows = [rows_by_index[index] for index in range(1, total + 1)]
 
     csv_path = output_path / "compatibility_matrix.csv"
     _write_csv(rows, csv_path)

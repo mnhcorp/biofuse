@@ -262,6 +262,8 @@ biofuse smoke --preset medmnist --dataset pathmnist --models CLIP
 
 # Compatibility sweep
 biofuse matrix --device cuda --output-dir /workspace/results/matrix
+# Or let BioFuse auto-detect all visible GPUs and parallelize across them:
+biofuse matrix --output-dir /workspace/results/matrix
 
 # Train
 biofuse train --config experiment.yaml
