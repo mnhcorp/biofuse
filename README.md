@@ -260,6 +260,9 @@ BioMedCLIP, CONCH, UNI/UNI2, rad-dino, Prov-GigaPath, PubMedCLIP, Hibou-B, CheXa
 biofuse smoke --preset custom
 biofuse smoke --preset medmnist --dataset pathmnist --models CLIP
 
+# Compatibility sweep
+biofuse matrix --device cuda --output-dir /workspace/results/matrix
+
 # Train
 biofuse train --config experiment.yaml
 biofuse train -d pathmnist -m BioMedCLIP

@@ -75,11 +75,13 @@ def main():
     # Import commands
     from .train import train
     from .cache import cache_group
+    from .matrix import matrix
     from .smoke import smoke
 
     # Register commands
     cli.add_command(train)
     cli.add_command(cache_group)
+    cli.add_command(matrix)
     cli.add_command(smoke)
 
     cli(obj={})
